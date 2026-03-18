@@ -1,0 +1,18 @@
+# Podcast AI - Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core transcription
+faster-whisper>=0.10.0
+
+# Audio metadata
+mutagen>=1.47.0
+
+# Audio processing (required)
+pydub>=0.25.1
+
+# Progress display
+tqdm>=4.65.0
+
+# Optional: For GPU support (CUDA)
+# torch>=2.0.0
+# torchaudio>=2.0.0

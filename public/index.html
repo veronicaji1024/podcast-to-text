@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Podcast AI</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bitcount+Prop+Single+Ink&family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+
+    <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+        font-family: 'Jost', 'Noto Sans SC', sans-serif;
+        min-height: 100vh;
+        background: linear-gradient(140deg, #ddd4ef 0%, #c4dcc4 48%, #e6d4b8 100%);
+        background-attachment: fixed;
+        color: #1a1228;
+        overflow-x: hidden;
+    }
+
+    /* ── Glass layers ── */
+    .gl  { background: rgba(255,255,255,0.38); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.62); }
+    .gd  { background: rgba(18,14,38,0.82);   backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.09); color:#f2eeff; }
+    .gw  { background: linear-gradient(140deg, rgba(255,195,120,0.42) 0%, rgba(220,140,205,0.38) 100%); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255,215,170,0.50); }
+    .gs  { background: rgba(106,168,106,0.30); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(156,210,156,0.46); }
+    .gr  { background: linear-gradient(105deg, rgba(120,210,225,0.40) 0%, rgba(195,155,235,0.38) 38%, rgba(255,185,120,0.40) 68%, rgba(160,225,170,0.38) 100%); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.52); }
+
+    /* ── Radii ── */
+    .rx { border-radius: 28px; }
+    .rm { border-radius: 20px; }
+    .rp { border-radius: 999px; }
+
+    /* ── Fonts ── */
+    .fd { font-family: 'Bitcount Prop Single Ink', monospace; }
+
+    /* ══ HEADER ══ */
+    .hdr {
+        padding: 16px 32px;
+        display: flex; align-items: center; justify-content: space-between;
+        background: rgba(255,255,255,0.18);
+        backdrop-filter: blur(18px);
+        border-bottom: 1px solid rgba(255,255,255,0.36);
+    }
+    .logo-tag {
+        display: flex; align-items: center; gap: 9px;
+        background: rgba(18,14,38,0.86); border-radius: 12px;
+        padding: 7px 15px; color: #f2eeff;
+    }
+    .logo-dot { width:8px; height:8px; border-radius:50%; background:#c4a6ff; flex-shrink:0; }
+    .badge {
+        font-size: 12px; font-weight: 500; letter-spacing: 0.2px;
+        background: rgba(255,255,255,0.52); border: 1px solid rgba(255,255,255,0.78);
+        border-radius: 999px; padding: 5px 14px; color: #444;
+        backdrop-filter: blur(8px);
+    }
+
+    /* ══ BENTO WRAPPER ══ */
+    .bw { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+
+    /* ── Hero ── */
+    .hero { padding: 44px 0 26px; }
+    .hero-title {
+        font-size: clamp(56px, 7.5vw, 88px);
+        line-height: 1; letter-spacing: -1.5px;
+        color: rgba(26,18,40,0.80);
+    }
+    .hero-sub { font-size: 15px; color: rgba(26,18,40,0.42); margin-top: 9px; font-weight: 400; letter-spacing: 0.3px; }
+    .cursor { display: inline-block; width: 3px; height: 0.72em; background: rgba(26,18,40,0.45); margin-left: 7px; vertical-align: middle; border-radius: 2px; animation: blink 1.15s step-end infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    /* ── 3 chips row ── */
+    .chips { display: flex; gap: 10px; margin-bottom: 12px; }
+    .chip {
+        flex: 1; padding: 11px 16px;
+        display: flex; align-items: center; gap: 8px;
+        font-size: 12.5px; font-weight: 500; color: rgba(26,18,40,0.65);
+    }
+    .chip-ico { font-size: 15px; opacity: 0.65; }
+
+    /* ── Middle bento row ── */
+    .bmid { display: flex; gap: 12px; margin-bottom: 12px; align-items: stretch; }
+
+    /* URL card */
+    .curl { flex: 1; padding: 26px 28px; display: flex; flex-direction: column; gap: 20px; }
+
+    /* Right column */
+    .brt { display: flex; flex-direction: column; gap: 12px; width: 188px; flex-shrink: 0; }
+
+    .canalyze {
+        flex: 1.7; padding: 22px 18px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+        cursor: pointer; border: none; text-align: center;
+        transition: transform 0.22s, box-shadow 0.22s;
+    }
+    .canalyze:hover { transform: translateY(-3px); box-shadow: 0 16px 44px rgba(220,140,80,0.32); }
+
+    .cupload {
+        flex: 1; padding: 16px 18px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+        cursor: pointer; border: none; text-align: center;
+        transition: transform 0.22s;
+    }
+    .cupload:hover { transform: translateY(-2px); }
+
+    /* Banner */
+    .cbanner { padding: 17px 26px; display: flex; align-items: center; gap: 14px; }
+
+    /* ── Inputs ── */
+    .gi {
+        background: rgba(255,255,255,0.13); border: 1px solid rgba(255,255,255,0.22);
+        border-radius: 14px; padding: 12px 17px;
+        font-family: 'Jost', sans-serif; font-size: 14px;
+        color: #f2eeff; width: 100%; outline: none; transition: all 0.2s;
+    }
+    .gi::placeholder { color: rgba(242,238,255,0.38); }
+    .gi:focus { border-color: rgba(196,166,255,0.58); box-shadow: 0 0 0 3px rgba(196,166,255,0.14); background: rgba(255,255,255,0.17); }
+    select.gi { appearance: none; cursor: pointer; }
+
+    .lbl { font-size: 10.5px; letter-spacing: 1.4px; text-transform: uppercase; opacity: 0.38; margin-bottom: 8px; font-weight: 600; }
+
+    /* ── Progress ── */
+    .pw { max-width: 980px; margin: 0 auto; padding: 0 24px 32px; }
+    .srow {
+        display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+        border-radius: 16px; margin-bottom: 9px;
+        background: rgba(255,255,255,0.26); border: 1px solid rgba(255,255,255,0.46);
+        transition: all 0.28s;
+    }
+    .srow.step-active    { background: rgba(196,166,255,0.20); border-color: rgba(196,166,255,0.52); }
+    .srow.step-completed { background: rgba(106,168,106,0.18); border-color: rgba(106,168,106,0.46); }
+    .srow.step-error     { background: rgba(220,80,80,0.14);   border-color: rgba(220,80,80,0.40); }
+    .snum {
+        width: 30px; height: 30px; border-radius: 50%;
+        background: rgba(255,255,255,0.48); display: flex; align-items: center; justify-content: center;
+        font-size: 12px; font-weight: 700; flex-shrink: 0;
+    }
+    .ptr { background: rgba(255,255,255,0.30); border-radius: 999px; height: 8px; overflow: hidden; }
+    .pfl { background: linear-gradient(90deg,#c4a6ff,#7ab87a); height: 100%; border-radius: 999px; transition: width 0.5s ease-in-out; }
+
+    /* ── Results ── */
+    .rw { max-width: 1120px; margin: 0 auto; padding: 0 24px 40px; }
+    .rgrid { display: flex; gap: 14px; align-items: flex-start; }
+    .rmain { flex: 1; padding: 24px; min-width: 0; }
+    .rchat { width: 316px; flex-shrink: 0; display: flex; flex-direction: column; height: 560px; }
+
+    .tabbar { display: flex; gap: 4px; background: rgba(255,255,255,0.22); border-radius: 14px; padding: 4px; margin-bottom: 20px; }
+    .tabbtn { flex: 1; padding: 9px 12px; border-radius: 10px; border: none; font-family: 'Jost',sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; color: rgba(26,18,40,0.48); background: transparent; }
+    .tabbtn.active { background: rgba(255,255,255,0.68); color: #1a1228; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+
+    /* Markdown */
+    .md h1 { font-size:1.5rem;font-weight:700;margin:1.2rem 0 .65rem; }
+    .md h2 { font-size:1.18rem;font-weight:600;margin:1rem 0 .5rem; }
+    .md h3 { font-size:1rem;font-weight:600;margin:.85rem 0 .4rem; }
+    .md p  { margin:.4rem 0;line-height:1.78; }
+    .md ul { list-style:disc;padding-left:1.4rem;margin:.4rem 0; }
+    .md ol { list-style:decimal;padding-left:1.4rem;margin:.4rem 0; }
+    .md li { margin:.3rem 0;line-height:1.65; }
+    .md code { background:rgba(196,166,255,0.18);padding:2px 7px;border-radius:6px;font-size:.85em;color:#9b6eff; }
+    .md blockquote { border-left:3px solid #c4a6ff;padding-left:1rem;margin:.65rem 0;opacity:.68;font-style:italic; }
+    .md strong { font-weight:700; }
+
+    /* Chat bubbles */
+    .cmu { background:rgba(18,14,38,0.82);color:#f2eeff;border-radius:16px 16px 4px 16px;padding:10px 14px;margin-left:auto;max-width:82%;font-size:13px;backdrop-filter:blur(8px); }
+    .cma { background:rgba(255,255,255,0.48);border:1px solid rgba(255,255,255,0.68);color:#1a1228;border-radius:16px 16px 16px 4px;padding:10px 14px;margin-right:auto;max-width:82%;font-size:13px;backdrop-filter:blur(8px); }
+
+    /* Buttons */
+    .bg { background:rgba(255,255,255,0.38);border:1px solid rgba(255,255,255,0.62);border-radius:999px;padding:7px 15px;font-family:'Jost',sans-serif;font-size:12px;font-weight:500;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:5px;backdrop-filter:blur(8px);color:#1a1228; }
+    .bg:hover { background:rgba(255,255,255,0.58);transform:translateY(-1px); }
+    .bd { background:rgba(18,14,38,0.86);border:1px solid rgba(255,255,255,0.10);border-radius:999px;padding:7px 15px;font-family:'Jost',sans-serif;font-size:12px;font-weight:500;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:5px;color:#f2eeff; }
+    .bd:hover { background:rgba(18,14,38,0.96);transform:translateY(-1px); }
+
+    /* Animate */
+    @keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+    .au { animation: fadeUp 0.35s ease-out; }
+
+    /* Scroll */
+    ::-webkit-scrollbar{width:5px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:rgba(196,166,255,0.35);border-radius:999px}
+
+    @media(max-width:720px){
+        .bmid{flex-direction:column}
+        .brt{width:100%;flex-direction:row}
+        .canalyze,.cupload{flex:1}
+        .rgrid{flex-direction:column}
+        .rchat{width:100%;height:380px}
+    }
+    </style>
+</head>
+<body>
+
+<!-- ══ HEADER ══ -->
+<header class="hdr">
+    <div class="logo-tag">
+        <span class="logo-dot"></span>
+        <span style="font-size:15px;font-weight:600;letter-spacing:0.3px;">Podcast AI</span>
+    </div>
+    <div style="display:flex;gap:8px;">
+        <span class="badge">Whisper ASR</span>
+        <span class="badge">Qwen Plus</span>
+    </div>
+</header>
+
+<!-- ══ MAIN ══ -->
+<main id="mainContent">
+
+<!-- ── INPUT SECTION ── -->
+<div class="bw">
+
+    <!-- Hero title -->
+    <div class="hero">
+        <h1 class="fd hero-title">
+            Your Podcast<span class="cursor"></span>
+        </h1>
+        <p class="hero-sub">Transcribe &nbsp;·&nbsp; Summarize &nbsp;·&nbsp; Chat</p>
+    </div>
+
+    <!-- 3 flat chips -->
+    <div class="chips">
+        <div class="chip gl rp">
+            <span class="chip-ico">🎙</span>
+            <span>Whisper Speech-to-Text</span>
+        </div>
+        <div class="chip gl rp">
+            <span class="chip-ico">✦</span>
+            <span>AI Notes &amp; Summary</span>
+        </div>
+        <div class="chip gl rp">
+            <span class="chip-ico">◎</span>
+            <span>Multi-Platform</span>
+        </div>
+    </div>
+
+    <!-- Middle bento -->
+    <div class="bmid">
+
+        <!-- Dark URL card -->
+        <div class="curl gd rx">
+            <div>
+                <p class="lbl" style="color:#f2eeff;">Podcast URL</p>
+                <div style="position:relative;">
+                    <input type="text" id="podcastUrl" placeholder="Paste your podcast link..." class="gi" style="padding-right:50px;">
+                    <button id="pasteBtn" style="position:absolute;right:14px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(242,238,255,0.38);font-size:15px;transition:color 0.2s;" title="Paste">
+                        <i class="fas fa-paste"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div>
+                    <p class="lbl" style="color:#f2eeff;">Language</p>
+                    <div style="position:relative;">
+                        <select id="summaryLanguage" class="gi" style="padding-right:34px;">
+                            <option value="auto">Auto Detect</option>
+                            <option value="zh" selected>中文</option>
+                            <option value="en">English</option>
+                            <option value="ja">日本語</option>
+                            <option value="ko">한국어</option>
+                            <option value="es">Español</option>
+                            <option value="fr">Français</option>
+                            <option value="de">Deutsch</option>
+                        </select>
+                        <i class="fas fa-chevron-down" style="position:absolute;right:13px;top:50%;transform:translateY(-50%);font-size:10px;opacity:0.35;pointer-events:none;color:#f2eeff;"></i>
+                    </div>
+                </div>
+                <div>
+                    <p class="lbl" style="color:#f2eeff;">Detail Level</p>
+                    <div style="position:relative;">
+                        <select id="detailLevel" class="gi" style="padding-right:34px;">
+                            <option value="brief">Brief</option>
+                            <option value="standard" selected>Standard</option>
+                            <option value="detailed">Detailed</option>
+                        </select>
+                        <i class="fas fa-chevron-down" style="position:absolute;right:13px;top:50%;transform:translateY(-50%);font-size:10px;opacity:0.35;pointer-events:none;color:#f2eeff;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: 2 stacked cards -->
+        <div class="brt">
+
+            <!-- Analyze — warm gradient, big -->
+            <button id="analyzeBtn" class="canalyze gw rx">
+                <div style="width:46px;height:46px;background:rgba(18,14,38,0.18);border-radius:50%;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.35);">
+                    <i class="fas fa-play" style="font-size:15px;color:rgba(26,18,40,0.75);margin-left:3px;"></i>
+                </div>
+                <div>
+                    <p style="font-size:17px;font-weight:700;color:#1a1228;letter-spacing:-0.4px;line-height:1.1;">Analyze</p>
+                    <p style="font-size:11px;color:rgba(26,18,40,0.50);margin-top:3px;">Process URL</p>
+                </div>
+            </button>
+
+            <!-- Upload — sage, small -->
+            <button id="uploadBtn" class="cupload gs rx">
+                <i class="fas fa-upload" style="font-size:17px;color:rgba(26,18,40,0.62);"></i>
+                <div>
+                    <p style="font-size:13px;font-weight:700;color:#1a1228;">Upload</p>
+                    <p style="font-size:10.5px;color:rgba(26,18,40,0.45);margin-top:2px;">MP3 · WAV · M4A</p>
+                </div>
+            </button>
+        </div>
+    </div>
+
+    <!-- Bottom rainbow banner -->
+    <div class="cbanner gr rx" style="margin-bottom:40px;">
+        <span style="font-size:22px;opacity:0.62;flex-shrink:0;">◈</span>
+        <div>
+            <p style="font-size:13px;font-weight:600;color:rgba(26,18,40,0.72);margin-bottom:3px;">Multi-Platform Support</p>
+            <p style="font-size:12px;color:rgba(26,18,40,0.48);">Apple Podcasts &nbsp;·&nbsp; 小宇宙 &nbsp;·&nbsp; RSS Feed &nbsp;·&nbsp; Direct Audio URL &nbsp;·&nbsp; File Upload</p>
+        </div>
+    </div>
+
+    <input type="file" id="audioFile" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" style="display:none;">
+</div>
+
+<!-- ── PROGRESS SECTION ── -->
+<div id="progressSection" style="display:none;">
+    <div class="pw au">
+        <div class="gl rx" style="padding:28px;">
+            <h3 class="fd" style="font-size:30px;color:rgba(26,18,40,0.78);margin-bottom:20px;letter-spacing:-0.5px;">Processing<span class="cursor" style="height:0.65em;"></span></h3>
+
+            <div style="margin-bottom:24px;">
+                <div id="step1" class="srow">
+                    <div class="snum">1</div>
+                    <div style="flex:1;">
+                        <p style="font-size:14px;font-weight:600;">Link Analysis</p>
+                        <p style="font-size:11.5px;opacity:0.45;margin-top:2px;">解析播客链接获取音频信息</p>
+                    </div>
+                    <i class="step-icon fas fa-circle" style="font-size:9px;opacity:0.28;"></i>
+                </div>
+                <div id="step2" class="srow">
+                    <div class="snum">2</div>
+                    <div style="flex:1;">
+                        <p style="font-size:14px;font-weight:600;">Audio Download</p>
+                        <p style="font-size:11.5px;opacity:0.45;margin-top:2px;">下载播客音频文件</p>
+                    </div>
+                    <i class="step-icon fas fa-circle" style="font-size:9px;opacity:0.28;"></i>
+                </div>
+                <div id="step3" class="srow">
+                    <div class="snum">3</div>
+                    <div style="flex:1;">
+                        <p style="font-size:14px;font-weight:600;">Transcription</p>
+                        <p style="font-size:11.5px;opacity:0.45;margin-top:2px;">使用 Whisper 进行语音转文字</p>
+                    </div>
+                    <i class="step-icon fas fa-circle" style="font-size:9px;opacity:0.28;"></i>
+                </div>
+                <div id="step4" class="srow">
+                    <div class="snum">4</div>
+                    <div style="flex:1;">
+                        <p style="font-size:14px;font-weight:600;">Text Optimization</p>
+                        <p style="font-size:11.5px;opacity:0.45;margin-top:2px;">AI 优化转录文本</p>
+                    </div>
+                    <i class="step-icon fas fa-circle" style="font-size:9px;opacity:0.28;"></i>
+                </div>
+                <div id="step5" class="srow">
+                    <div class="snum">5</div>
+                    <div style="flex:1;">
+                        <p style="font-size:14px;font-weight:600;">Notes Extraction</p>
+                        <p style="font-size:11.5px;opacity:0.45;margin-top:2px;">生成结构化笔记和关键要点</p>
+                    </div>
+                    <i class="step-icon fas fa-circle" style="font-size:9px;opacity:0.28;"></i>
+                </div>
+            </div>
+
+            <div>
+                <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:9px;">
+                    <span id="progressText" style="opacity:0.46;">Getting ready...</span>
+                    <span id="progressPercent" style="font-weight:700;">0%</span>
+                </div>
+                <div class="ptr">
+                    <div id="progressBar" class="pfl" style="width:0%;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── RESULTS SECTION ── -->
+<div id="resultsSection" style="display:none;">
+    <div class="rw au">
+
+        <!-- Podcast meta card -->
+        <div id="podcastInfo" class="gl rx" style="padding:20px 24px;margin-bottom:14px;display:none;align-items:flex-start;gap:16px;">
+            <img id="podcastCover" src="" alt="Cover" style="width:66px;height:66px;border-radius:14px;object-fit:cover;display:none;flex-shrink:0;">
+            <div style="flex:1;min-width:0;">
+                <h3 id="podcastTitle" style="font-size:18px;font-weight:700;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></h3>
+                <p id="podcastAuthor" style="font-size:13px;opacity:0.46;margin-bottom:5px;"></p>
+                <p id="podcastDescription" style="font-size:13px;opacity:0.58;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"></p>
+                <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+                    <span id="podcastDuration" class="badge" style="display:none;"><i class="fas fa-clock" style="margin-right:4px;opacity:0.55;"></i><span></span></span>
+                    <span id="podcastDate" class="badge" style="display:none;"><i class="fas fa-calendar" style="margin-right:4px;opacity:0.55;"></i><span></span></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results grid -->
+        <div class="rgrid">
+
+            <!-- Main content -->
+            <div class="rmain gl rx">
+                <div class="tabbar">
+                    <button id="tabSummary" class="tabbtn active">
+                        <i class="fas fa-file-alt" style="margin-right:5px;font-size:11px;"></i>Notes
+                    </button>
+                    <button id="tabTranscript" class="tabbtn">
+                        <i class="fas fa-align-left" style="margin-right:5px;font-size:11px;"></i>Transcript
+                    </button>
+                </div>
+
+                <div id="summaryContent">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                        <span style="font-size:15px;font-weight:700;">Podcast Notes</span>
+                        <div style="display:flex;gap:8px;">
+                            <button id="copySummaryBtn" class="bg"><i class="fas fa-copy" style="font-size:11px;"></i>Copy</button>
+                            <button id="downloadSummaryBtn" class="bd"><i class="fas fa-download" style="font-size:11px;"></i>Download</button>
+                        </div>
+                    </div>
+                    <div id="summaryText" class="md" style="line-height:1.78;"></div>
+                </div>
+
+                <div id="transcriptContent" style="display:none;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                        <span style="font-size:15px;font-weight:700;">Full Transcript</span>
+                        <div style="display:flex;gap:8px;">
+                            <button id="copyTranscriptBtn" class="bg"><i class="fas fa-copy" style="font-size:11px;"></i>Copy</button>
+                            <button id="downloadTranscriptBtn" class="bd"><i class="fas fa-download" style="font-size:11px;"></i>Download</button>
+                        </div>
+                    </div>
+                    <div id="transcriptText" style="font-size:13px;line-height:1.8;white-space:pre-wrap;font-family:monospace;background:rgba(255,255,255,0.34);border-radius:14px;padding:16px;max-height:440px;overflow-y:auto;"></div>
+                </div>
+            </div>
+
+            <!-- Chat panel -->
+            <div id="chatPanel" class="rchat gl rx">
+                <div style="padding:15px 20px;border-bottom:1px solid rgba(255,255,255,0.48);display:flex;align-items:center;justify-content:space-between;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <i class="fas fa-comments" style="color:#c4a6ff;font-size:13px;"></i>
+                        <span style="font-size:14px;font-weight:700;">Chat</span>
+                    </div>
+                    <button id="clearChatBtn" style="background:none;border:none;cursor:pointer;font-size:12px;opacity:0.36;padding:4px 8px;border-radius:8px;transition:opacity 0.2s;font-family:'Jost',sans-serif;" title="Clear">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+
+                <div id="chatMessages" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;">
+                    <div style="text-align:center;padding:32px 12px;opacity:0.40;">
+                        <i class="fas fa-robot" style="font-size:26px;display:block;margin-bottom:10px;color:#c4a6ff;"></i>
+                        <p style="font-size:13px;">你可以问我关于这个播客的任何问题</p>
+                        <p style="font-size:11px;margin-top:5px;opacity:0.7;">"某个观点原文是怎么说的？"</p>
+                    </div>
+                </div>
+
+                <div style="padding:12px;border-top:1px solid rgba(255,255,255,0.44);">
+                    <div style="display:flex;gap:8px;">
+                        <input type="text" id="chatInput" placeholder="Ask anything..." style="flex:1;background:rgba(255,255,255,0.46);border:1px solid rgba(255,255,255,0.70);border-radius:12px;padding:9px 14px;font-family:'Jost',sans-serif;font-size:13px;color:#1a1228;outline:none;transition:all 0.2s;">
+                        <button id="chatSendBtn" class="bd" style="border-radius:12px;padding:9px 14px;flex-shrink:0;">
+                            <i class="fas fa-paper-plane" style="font-size:12px;"></i>
+                        </button>
+                    </div>
+                    <div id="chatStatus" style="font-size:11px;opacity:0.42;margin-top:7px;display:none;">
+                        <i class="fas fa-spinner fa-spin" style="margin-right:4px;"></i>Thinking...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── ERROR SECTION ── -->
+<div id="errorSection" style="display:none;">
+    <div class="pw au">
+        <div class="gl rx" style="padding:44px;text-align:center;border-color:rgba(220,100,100,0.32);background:rgba(255,236,236,0.38);">
+            <div style="width:52px;height:52px;background:rgba(220,80,80,0.14);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+                <i class="fas fa-exclamation-circle" style="color:#cc4040;font-size:22px;"></i>
+            </div>
+            <h3 class="fd" style="font-size:28px;color:#882020;margin-bottom:10px;">Oops.</h3>
+            <p id="errorMessage" style="font-size:14px;color:#aa3030;margin-bottom:22px;font-family:'Jost',sans-serif;"></p>
+            <button id="retryBtn" class="bd" style="background:rgba(180,36,36,0.84);margin:0 auto;">
+                <i class="fas fa-redo" style="font-size:11px;"></i>Try Again
+            </button>
+        </div>
+    </div>
+</div>
+
+</main>
+
+<footer style="text-align:center;padding:24px;opacity:0.30;font-size:12px;letter-spacing:0.5px;">
+    Podcast AI &nbsp;·&nbsp; Transcribe · Summarize · Chat
+</footer>
+
+<script src="script.js"></script>
+
+<script>
+// ── Override layer: rewire script.js to new design ──
+
+window.updateStep = function(n, status) {
+    const s = document.getElementById('step'+n); if(!s) return;
+    const ic = s.querySelector('.step-icon');
+    s.className = 'srow';
+    if(status==='active'){
+        s.classList.add('step-active');
+        ic.className='step-icon fas fa-spinner fa-spin'; ic.style.color='#c4a6ff'; ic.style.opacity='1';
+    } else if(status==='completed'){
+        s.classList.add('step-completed');
+        ic.className='step-icon fas fa-check'; ic.style.color='#6ab86a'; ic.style.opacity='1';
+    } else if(status==='error'){
+        s.classList.add('step-error');
+        ic.className='step-icon fas fa-times'; ic.style.color='#cc4040'; ic.style.opacity='1';
+    } else {
+        ic.className='step-icon fas fa-circle'; ic.style.color=''; ic.style.opacity='0.28';
+    }
+};
+
+window.resetSteps = function() {
+    for(let i=1;i<=5;i++){
+        const s=document.getElementById('step'+i); if(!s) continue;
+        s.className='srow';
+        const ic=s.querySelector('.step-icon');
+        ic.className='step-icon fas fa-circle'; ic.style.color=''; ic.style.opacity='0.28';
+    }
+};
+
+window.switchTab = function(tab) {
+    const ts=document.getElementById('tabSummary'), tt=document.getElementById('tabTranscript');
+    const sc=document.getElementById('summaryContent'), tc=document.getElementById('transcriptContent');
+    if(tab==='summary'){
+        ts.classList.add('active'); tt.classList.remove('active');
+        sc.style.display=''; tc.style.display='none';
+    } else {
+        tt.classList.add('active'); ts.classList.remove('active');
+        tc.style.display=''; sc.style.display='none';
+    }
+};
+
+window.showNotification = function(msg, type='info') {
+    const cols={success:'rgba(72,155,72,0.92)',error:'rgba(195,55,55,0.90)',info:'rgba(18,14,38,0.90)'};
+    const ics={success:'fa-check',error:'fa-exclamation-circle',info:'fa-info-circle'};
+    const el=document.createElement('div');
+    el.style.cssText=`position:fixed;top:20px;right:20px;background:${cols[type]||cols.info};color:#fff;padding:11px 18px;border-radius:14px;font-size:13px;font-family:'Jost',sans-serif;font-weight:500;display:flex;align-items:center;gap:8px;z-index:9999;backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.22);box-shadow:0 8px 32px rgba(0,0,0,0.16);animation:fadeUp 0.3s ease-out;`;
+    const i=document.createElement('i'); i.className=`fas ${ics[type]||ics.info}`;
+    const t=document.createElement('span'); t.textContent=msg;
+    el.appendChild(i); el.appendChild(t); document.body.appendChild(el);
+    setTimeout(()=>{el.style.opacity='0';el.style.transform='translateY(-10px)';el.style.transition='all 0.28s';setTimeout(()=>el.parentNode&&document.body.removeChild(el),300);},3000);
+};
+
+window.startProcessing = function() {
+    document.getElementById('resultsSection').style.display='none';
+    document.getElementById('errorSection').style.display='none';
+    document.getElementById('progressSection').style.display='';
+    updateProgress(0,'Getting ready...');
+    resetSteps();
+    document.getElementById('progressSection').scrollIntoView({behavior:'smooth',block:'start'});
+};
+
+window.showError = function(msg, suggestion=null) {
+    document.getElementById('progressSection').style.display='none';
+    document.getElementById('errorSection').style.display='';
+    const em=document.getElementById('errorMessage');
+    if(typeof msg==='object'&&msg.error){suggestion=msg.suggestion||suggestion;msg=msg.error;}
+    if(suggestion){
+        em.innerHTML='';
+        const sp=document.createElement('span');sp.textContent=msg;em.appendChild(sp);
+        const pp=document.createElement('p');pp.style.cssText='font-size:12px;margin-top:7px;opacity:0.72;';pp.textContent=suggestion;em.appendChild(pp);
+    } else { em.textContent=msg; }
+    showNotification(msg,'error');
+};
+
+window.showResults = function(result) {
+    window.currentResult=result;
+    document.getElementById('progressSection').style.display='none';
+    document.getElementById('resultsSection').style.display='';
+    const mc=document.getElementById('mainContent'); if(mc) mc.style.maxWidth='none';
+    resetChat();
+    if(result.metadata){
+        const m=result.metadata;
+        const pi=document.getElementById('podcastInfo'); pi.style.display='flex';
+        const cv=document.getElementById('podcastCover');
+        if(m.cover){cv.src=m.cover;cv.style.display='';}else{cv.style.display='none';}
+        document.getElementById('podcastTitle').textContent=m.title||'Unknown Podcast';
+        document.getElementById('podcastAuthor').textContent=m.author||'';
+        document.getElementById('podcastDescription').textContent=m.description||'';
+        const dur=document.getElementById('podcastDuration');
+        if(m.duration){dur.querySelector('span').textContent=formatDuration(m.duration);dur.style.display='';}else{dur.style.display='none';}
+        const dt=document.getElementById('podcastDate');
+        if(m.date){dt.querySelector('span').textContent=formatDate(m.date);dt.style.display='';}else{dt.style.display='none';}
+    } else { document.getElementById('podcastInfo').style.display='none'; }
+    document.getElementById('summaryText').innerHTML=formatMarkdown(result.summary||'');
+    document.getElementById('transcriptText').textContent=result.transcript||'';
+    switchTab('summary');
+    document.getElementById('resultsSection').scrollIntoView({behavior:'smooth',block:'start'});
+    showNotification('Done!','success');
+};
+
+window.resetUI = function() {
+    ['progressSection','resultsSection','errorSection'].forEach(id=>document.getElementById(id).style.display='none');
+    document.getElementById('podcastUrl').value='';
+    window.currentJobId=null;window.currentAccessToken=null;window.currentResult=null;window.pollRetryCount=0;
+    if(window.pollInterval)clearInterval(window.pollInterval);
+    resetChat();
+    const mc=document.getElementById('mainContent');if(mc)mc.style.maxWidth='';
+};
+
+window.addChatMessage = function(role, content) {
+    const cm=document.getElementById('chatMessages'); if(!cm)return;
+    const w=cm.querySelector('[style*="text-align:center"]'); if(w)w.remove();
+    const d=document.createElement('div');
+    d.className=role==='user'?'cmu':'cma';
+    if(role==='assistant'){
+        const inner=document.createElement('div');inner.className='md';inner.innerHTML=formatMarkdown(content);d.appendChild(inner);
+    } else { d.textContent=content; }
+    cm.appendChild(d); cm.scrollTop=cm.scrollHeight;
+};
+
+const _chatWelcome = `<div style="text-align:center;padding:32px 12px;opacity:0.40;"><i class="fas fa-robot" style="font-size:26px;display:block;margin-bottom:10px;color:#c4a6ff;"></i><p style="font-size:13px;">你可以问我关于这个播客的任何问题</p><p style="font-size:11px;margin-top:5px;opacity:0.7;">"某个观点原文是怎么说的？"</p></div>`;
+
+window.clearChat = function() {
+    window.chatHistory=[];
+    const cm=document.getElementById('chatMessages');if(cm)cm.innerHTML=_chatWelcome;
+};
+window.resetChat = function() {
+    window.chatHistory=[];
+    const cm=document.getElementById('chatMessages');if(cm)cm.innerHTML=_chatWelcome;
+    const ci=document.getElementById('chatInput');if(ci)ci.value='';
+    setChatLoading(false);
+};
+
+document.getElementById('retryBtn').addEventListener('click',()=>{
+    document.getElementById('errorSection').style.display='none'; resetUI();
+});
+</script>
+
+</body>
+</html>
