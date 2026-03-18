@@ -543,6 +543,96 @@ Return only the JSON array, like: ["Topic 1", "Topic 2", "Topic 3"]`;
     }
 
     /**
+     * Summarize raw ASR transcript directly — replaces optimizeTranscript + summarize in one call.
+     * The prompt handles ASR cleanup internally, eliminating the separate optimization step.
+     */
+    async summarizeRaw(transcript, outputLanguage = 'auto', detailLevel = 'standard', onProgress, sourceLanguage = null) {
+        console.log(`Starting combined transcribe+summarize (output: ${outputLanguage}, detail: ${detailLevel})...`);
+
+        const detectedSourceLang = sourceLanguage || detectLanguage(transcript);
+        const finalOutputLanguage = outputLanguage === 'auto' ? detectedSourceLang : outputLanguage;
+
+        const lengthGuide = {
+            'brief': 'concise (about 10-15% of original length)',
+            'standard': 'moderate (about 20-25% of original length)',
+            'detailed': 'comprehensive (about 30-40% of original length)'
+        };
+
+        let summary;
+        if (transcript.length > this.chunkSize * 3) {
+            summary = await this._summarizeRawLong(transcript, finalOutputLanguage, detailLevel, lengthGuide[detailLevel], onProgress);
+        } else {
+            summary = await this._summarizeRawChunk(transcript, finalOutputLanguage, detailLevel, lengthGuide[detailLevel]);
+            if (onProgress) onProgress(100);
+        }
+
+        return summary;
+    }
+
+    async _summarizeRawChunk(chunk, language, detailLevel, lengthGuide) {
+        const languageNames = {
+            'zh': 'Chinese', 'en': 'English', 'ja': 'Japanese',
+            'ko': 'Korean', 'es': 'Spanish', 'fr': 'French',
+            'de': 'German', 'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian'
+        };
+        const langName = languageNames[language] || 'the same language as the transcript';
+
+        const prompt = `You are an expert podcast note-taker. The input is RAW speech-to-text output from Whisper ASR — it may contain minor transcription errors, run-on sentences, and missing punctuation. As you read, silently correct obvious errors and extract the core information.
+
+Requirements:
+1. Output in ${langName}
+2. Length: ${lengthGuide}
+3. Extract: main topics, key arguments, important viewpoints, data, examples, and notable quotes
+4. Organize using flowing paragraphs and lists
+5. Do NOT use headers like "Key Topics", "Main Points", "Notable Quotes", or "Key Takeaways"
+
+Raw transcript:
+"""
+${chunk}
+"""
+
+Provide the extracted notes:`;
+
+        try {
+            const response = await this.callWithTimeout(
+                this.openai.chat.completions.create({
+                    model: this.model,
+                    messages: [
+                        { role: 'system', content: 'You are an expert at reading raw ASR transcripts and extracting structured, accurate notes. Silently fix transcription errors as you read.' },
+                        { role: 'user', content: prompt }
+                    ],
+                    max_tokens: this.maxTokens,
+                    temperature: 0.4
+                }),
+                this.apiTimeout,
+                '笔记提取'
+            );
+            return response.choices[0].message.content.trim();
+        } catch (error) {
+            console.error('Summarize raw chunk error:', error);
+            throw new Error(`笔记提取失败: ${error.message}`);
+        }
+    }
+
+    async _summarizeRawLong(transcript, language, detailLevel, lengthGuide, onProgress) {
+        const chunks = chunkText(transcript, this.chunkSize);
+        const chunkExtracts = [];
+
+        for (let i = 0; i < chunks.length; i++) {
+            console.log(`Processing chunk ${i + 1}/${chunks.length}...`);
+            const extract = await this._summarizeRawChunk(chunks[i], language, 'brief', 'very concise (3-5 key points)');
+            chunkExtracts.push(extract);
+            if (onProgress) onProgress((i + 1) / chunks.length * 60);
+            if (i < chunks.length - 1) await this.sleep(500);
+        }
+
+        const combined = chunkExtracts.join('\n\n---\n\n');
+        const finalSummary = await this.createFinalSummary(combined, language, detailLevel, lengthGuide);
+        if (onProgress) onProgress(100);
+        return finalSummary;
+    }
+
+    /**
      * Sleep utility
      */
     sleep(ms) {

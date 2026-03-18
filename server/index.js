@@ -635,55 +635,33 @@ async function processAudioInternal(job) {
         job.detectedLanguage = detectedLanguage;
         console.log(`Transcription complete. Detected language: ${detectedLanguage}`);
 
-        // Step 4: Optimize transcript
-        await updateJob(job, {
-            step: 'optimizing',
-            progress: 65,
-            message: '正在优化转录文本...'
-        });
+        // Save raw transcript to file
+        await fs.writeFile(transcriptPath, transcript, 'utf-8');
 
-        const optimizedTranscript = await openaiService.optimizeTranscript(
-            transcript,
-            (progress) => {
-                updateJob(job, {
-                    progress: 65 + Math.round(progress * 0.1), // 65% to 75%
-                    message: '正在优化文本连贯性...'
-                });
-            },
-            detectedLanguage // Pass detected language to preserve it
-        );
-
-        // Save optimized transcript
-        await fs.writeFile(transcriptPath, optimizedTranscript, 'utf-8');
-        job.transcript = optimizedTranscript;
-
-        // Step 5: Summarize
+        // Step 4+5 (merged): Generate notes directly from raw transcript
         await updateJob(job, {
             step: 'summarizing',
-            progress: 75,
+            progress: 65,
             message: '正在生成笔记摘要...'
         });
 
-        // Apply language output rules:
-        // Chinese source -> Chinese output
-        // All other languages -> English output
         const outputLanguage = job.language === 'auto'
             ? determineOutputLanguage(detectedLanguage)
             : job.language;
 
         console.log(`Output language determined: ${outputLanguage} (source: ${detectedLanguage}, user preference: ${job.language})`);
 
-        const summary = await openaiService.summarize(
-            optimizedTranscript,
+        const summary = await openaiService.summarizeRaw(
+            transcript,
             outputLanguage,
             job.detailLevel,
             (progress) => {
                 updateJob(job, {
-                    progress: 75 + Math.round(progress * 0.25), // 75% to 100%
+                    progress: 65 + Math.round(progress * 0.35), // 65% to 100%
                     message: '正在提取关键要点...'
                 });
             },
-            detectedLanguage // Pass detected source language
+            detectedLanguage
         );
 
         // Save summary
@@ -697,7 +675,7 @@ async function processAudioInternal(job) {
             message: '处理完成！',
             result: {
                 metadata: job.metadata,
-                transcript: optimizedTranscript,
+                transcript: transcript,
                 summary: summary,
                 detectedLanguage: detectedLanguage,
                 outputLanguage: outputLanguage,

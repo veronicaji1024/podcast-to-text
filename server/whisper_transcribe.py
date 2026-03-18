@@ -29,8 +29,8 @@ def transcribe_audio(
     device: str = "cpu",
     compute_type: str = "int8",
     language: str = None,
-    beam_size: int = 5,
-    best_of: int = 5,
+    beam_size: int = 1,
+    best_of: int = 1,
     temperature: float = 0.0,
     condition_on_previous_text: bool = True,
     initial_prompt: str = None,
@@ -170,8 +170,8 @@ Examples:
                        help='Compute type (default: int8)')
     parser.add_argument('--language', default=None,
                        help='Language code (auto-detect if not specified)')
-    parser.add_argument('--beam_size', type=int, default=5,
-                       help='Beam size for decoding (default: 5)')
+    parser.add_argument('--beam_size', type=int, default=1,
+                       help='Beam size for decoding (default: 1)')
     parser.add_argument('--temperature', type=float, default=0.0,
                        help='Temperature for sampling (default: 0.0)')
     parser.add_argument('--word_timestamps', action='store_true',
