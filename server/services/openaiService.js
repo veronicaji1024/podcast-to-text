@@ -569,36 +569,120 @@ Return only the JSON array, like: ["Topic 1", "Topic 2", "Topic 3"]`;
         return summary;
     }
 
+    // 最终笔记的结构化 prompt 模板
+    _noteTemplate(language) {
+        const isZh = language === 'zh';
+        if (isZh) {
+            return `你是一个播客笔记整理专家。请根据以下结构，将这篇播客逐字稿整理成结构化笔记。输入是 Whisper ASR 的原始转录，可能含有轻微错误，请在整理时自动修正。
+
+## 输出结构
+
+### 1. 元信息
+- 标题：
+- 嘉宾：
+- 日期：
+- 时长：
+- 时代背景：这期播客发布时，AI/技术行业正在发生什么？用 2-3 句话概括当时的发展节点。
+
+### 2. 话题拆解
+按讨论顺序整理，使用清晰的层级结构：
+- 大标题（主要话题）
+  - 中标题（子话题）
+    - 要点（具体观点）
+
+### 3. 金句摘录
+提取 5-10 句最有启发、最值得记住的原话，保留原文表述。
+
+### 4. 行动项
+基于播客内容，提炼出听众可以实际去做的事情。
+
+## 要求
+- 话题拆解要完整覆盖播客内容，不要遗漏重要观点
+- 用自己的话概括，但金句部分保留原文
+- 层级清晰，便于快速浏览
+- 语言简洁，去掉口语化的冗余表达`;
+        }
+
+        return `You are an expert podcast note-taker. Organize the following raw ASR transcript into structured notes using the template below. Silently fix minor transcription errors as you read.
+
+## Output Structure
+
+### 1. Meta Info
+- Title:
+- Guest(s):
+- Date:
+- Duration:
+- Context: What was happening in AI/tech when this episode aired? Summarize in 2-3 sentences.
+
+### 2. Topic Breakdown
+Organized in discussion order, using clear hierarchy:
+- Main Topic
+  - Sub-topic
+    - Key point / specific insight
+
+### 3. Notable Quotes
+Extract 5-10 of the most insightful, memorable quotes. Preserve the speaker's exact words.
+
+### 4. Action Items
+Based on the content, what can listeners actually do? List concrete, actionable steps.
+
+## Requirements
+- Cover all major topics — don't skip important points
+- Paraphrase for the breakdown, but keep quotes verbatim
+- Clear hierarchy for easy skimming
+- Concise language, strip out filler and repetition`;
+    }
+
     async _summarizeRawChunk(chunk, language, detailLevel, lengthGuide) {
-        const languageNames = {
-            'zh': 'Chinese', 'en': 'English', 'ja': 'Japanese',
-            'ko': 'Korean', 'es': 'Spanish', 'fr': 'French',
-            'de': 'German', 'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian'
-        };
-        const langName = languageNames[language] || 'the same language as the transcript';
+        // 中间分块处理（长音频）：简短提取要点即可，不套用完整模板
+        if (detailLevel === 'brief' && lengthGuide.includes('3-5')) {
+            const prompt = `You are an expert podcast note-taker. The input is raw ASR output — silently fix minor errors as you read.
+Extract the 3-5 most important points from this transcript section. Be concise.
 
-        const prompt = `You are an expert podcast note-taker. The input is RAW speech-to-text output from Whisper ASR — it may contain minor transcription errors, run-on sentences, and missing punctuation. As you read, silently correct obvious errors and extract the core information.
-
-Requirements:
-1. Output in ${langName}
-2. Length: ${lengthGuide}
-3. Extract: main topics, key arguments, important viewpoints, data, examples, and notable quotes
-4. Organize using flowing paragraphs and lists
-5. Do NOT use headers like "Key Topics", "Main Points", "Notable Quotes", or "Key Takeaways"
-
-Raw transcript:
+Transcript section:
 """
 ${chunk}
 """
 
-Provide the extracted notes:`;
+Key points:`;
+            try {
+                const response = await this.callWithTimeout(
+                    this.openai.chat.completions.create({
+                        model: this.model,
+                        messages: [
+                            { role: 'system', content: 'Extract key points from raw ASR transcript sections concisely.' },
+                            { role: 'user', content: prompt }
+                        ],
+                        max_tokens: 800,
+                        temperature: 0.3
+                    }),
+                    this.apiTimeout,
+                    '要点提取'
+                );
+                return response.choices[0].message.content.trim();
+            } catch (error) {
+                console.error('Chunk extract error:', error);
+                return chunk;
+            }
+        }
+
+        // 短音频直接套用完整笔记模板
+        const template = this._noteTemplate(language);
+        const prompt = `${template}
+
+---
+
+Raw transcript:
+"""
+${chunk}
+"""`;
 
         try {
             const response = await this.callWithTimeout(
                 this.openai.chat.completions.create({
                     model: this.model,
                     messages: [
-                        { role: 'system', content: 'You are an expert at reading raw ASR transcripts and extracting structured, accurate notes. Silently fix transcription errors as you read.' },
+                        { role: 'system', content: 'You are an expert podcast note-taker. Follow the exact output template provided.' },
                         { role: 'user', content: prompt }
                     ],
                     max_tokens: this.maxTokens,
@@ -626,10 +710,40 @@ Provide the extracted notes:`;
             if (i < chunks.length - 1) await this.sleep(500);
         }
 
+        // 合并所有分块要点，套用完整模板输出最终笔记
         const combined = chunkExtracts.join('\n\n---\n\n');
-        const finalSummary = await this.createFinalSummary(combined, language, detailLevel, lengthGuide);
-        if (onProgress) onProgress(100);
-        return finalSummary;
+        const template = this._noteTemplate(language);
+        const finalPrompt = `${template}
+
+---
+
+The following are extracted key points from each section of the podcast transcript (in order):
+"""
+${combined}
+"""
+
+Now produce the complete structured notes:`;
+
+        try {
+            const response = await this.callWithTimeout(
+                this.openai.chat.completions.create({
+                    model: this.model,
+                    messages: [
+                        { role: 'system', content: 'You are an expert podcast note-taker. Synthesize section extracts into complete structured notes following the exact template provided.' },
+                        { role: 'user', content: finalPrompt }
+                    ],
+                    max_tokens: this.maxTokens,
+                    temperature: 0.4
+                }),
+                this.apiTimeout,
+                '生成最终笔记'
+            );
+            if (onProgress) onProgress(100);
+            return response.choices[0].message.content.trim();
+        } catch (error) {
+            console.error('Final notes error:', error);
+            return combined;
+        }
     }
 
     /**
