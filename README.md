@@ -1,213 +1,186 @@
-# Podcast AI 🎧
+# NOTEWAVE
 
-An intelligent podcast transcription and note-taking agent powered by Faster-Whisper and GPT-4.
+> Turn any podcast into structured notes — instantly.
 
-[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
-[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://python.org/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+NOTEWAVE is a self-hosted web app that converts podcast episodes into clean, structured notes using cloud speech recognition and large language models. Paste a link, upload a file, and get a full transcript plus AI-generated notes in seconds.
 
-## Features ✨
+---
 
-- 🔗 **Multi-Platform Support**: Apple Podcasts, Xiaoyuzhoufm (小宇宙), RSS feeds, and direct audio URLs
-- 🚀 **High Performance**: Local Faster-Whisper model for fast, accurate speech-to-text
-- 🤖 **AI-Powered**: GPT-4 optimized transcription and structured note extraction
-- 🌍 **Smart Translation**: Auto-translates when summary language differs from detected language
-- 📱 **Responsive UI**: Modern, mobile-first design
-- 📄 **Export Options**: Download transcripts and summaries in multiple formats
+## Features
 
-## Quick Start 🚀
+- **Multi-platform ingestion** — supports Xiaoyuzhou (小宇宙), Apple Podcasts, RSS feeds, direct audio URLs, and file uploads (MP3, M4A, WAV)
+- **Cloud ASR** — uses DashScope Paraformer for fast, accurate transcription; falls back to local Faster-Whisper automatically
+- **Parallel processing** — audio download and ASR run concurrently so you never wait for both
+- **Structured notes** — every episode produces a consistent template: metadata, topic breakdown, key quotes, and action items
+- **Podcast library** — all processed episodes are saved to a local SQLite database and accessible any time
+- **Chat with your podcast** — ask questions about any episode using the built-in AI chat
+- **Export** — download transcripts and notes as Markdown or plain text
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Vanilla JS, HTML/CSS |
+| Backend | Node.js + Express |
+| Speech-to-text | DashScope Paraformer (cloud) / Faster-Whisper (local fallback) |
+| LLM | Qwen via DashScope API |
+| Database | SQLite (via better-sqlite3) |
+
+---
+
+## Getting Started
 
 ### Prerequisites
 
 - Node.js 18+
-- Python 3.8+
-- OpenAI API Key
+- Python 3.8+ (for local Whisper fallback)
+- A [DashScope API key](https://dashscope.aliyun.com/) (Alibaba Cloud)
 
 ### Installation
 
 ```bash
-# Clone or download the project
+git clone https://github.com/veronicaji1024/podcast-to-text.git
 cd podcast-to-text
 
-# Run quick setup
-./quick-start.sh
+npm install
+pip3 install faster-whisper
 ```
 
-Or manually:
+### Configuration
 
 ```bash
-# Install Node.js dependencies
-npm install
-
-# Install Python dependencies
-pip3 install faster-whisper
-
-# Setup environment
 cp .env.example .env
-# Edit .env and add your OpenAI API key
+```
 
-# Start the server
+Edit `.env` and fill in the required values:
+
+```env
+# Required — your DashScope API key
+OPENAI_API_KEY=your_dashscope_api_key
+OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+OPENAI_MODEL=qwen-plus
+
+# ASR model (cloud speech recognition)
+ASR_MODEL=paraformer-v2
+
+# For local file uploads: expose files to cloud ASR
+USE_TUNNEL=true   # development
+USE_OSS=false     # set true + configure OSS for production
+```
+
+### Run
+
+```bash
 npm start
 ```
 
-Open http://localhost:3000 in your browser.
-
-## Configuration ⚙️
-
-Edit `.env` file:
-
-```env
-# Required
-OPENAI_API_KEY=your_api_key_here
-
-# Optional
-PORT=3000
-WHISPER_MODEL=base  # tiny, base, small, medium, large-v1, large-v2, large-v3
-WHISPER_DEVICE=cpu  # cpu or cuda
-NODE_ENV=production
-```
-
-### Whisper Models
-
-| Model  | Speed | Accuracy | VRAM Required |
-|--------|-------|----------|---------------|
-| tiny   | ⚡⚡⚡  | ⭐⭐     | ~1 GB         |
-| base   | ⚡⚡   | ⭐⭐⭐   | ~1 GB         |
-| small  | ⚡    | ⭐⭐⭐⭐ | ~2 GB         |
-| medium | 🐢    | ⭐⭐⭐⭐⭐| ~5 GB         |
-| large  | 🐢🐢  | ⭐⭐⭐⭐⭐| ~10 GB        |
-
-## Usage 📖
-
-1. **Paste a podcast link** (Apple Podcasts, Xiaoyuzhou, RSS, or audio URL)
-2. **Select options** (summary language, detail level)
-3. **Click "Analyze Link"** and wait for processing
-4. **View results**: Switch between summary notes and full transcript
-5. **Download**: Save results as Markdown or plain text
-
-### Supported Platforms
-
-- **Apple Podcasts**: `https://podcasts.apple.com/...`
-- **Xiaoyuzhou (小宇宙)**: `https://www.xiaoyuzhoufm.com/episode/...`
-- **RSS Feeds**: `https://example.com/feed.xml`
-- **Direct Audio**: `https://example.com/podcast.mp3`
-
-## API Endpoints 🔌
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/process` | POST | Process podcast URL |
-| `/api/upload` | POST | Upload audio file |
-| `/api/status/:jobId` | GET | Get job status |
-| `/api/download/:jobId/:type` | GET | Download result |
-| `/api/health` | GET | Health check |
-
-### Example API Usage
-
-```bash
-# Process a podcast URL
-curl -X POST http://localhost:3000/api/process \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://www.xiaoyuzhoufm.com/episode/xxx", "language": "zh"}'
-
-# Check status
-curl http://localhost:3000/api/status/your-job-id
-```
-
-## Project Structure 📁
-
-```
-podcast-to-text/
-├── public/                 # Frontend files
-│   ├── index.html         # Main UI
-│   └── script.js          # Client logic
-├── server/                # Backend
-│   ├── index.js           # Express server
-│   ├── whisper_transcribe.py  # Transcription script
-│   └── services/          # Business logic
-│       ├── podcastService.js
-│       ├── openaiService.js
-│       ├── audioInfoService.js
-│       └── rssParser.js
-├── .env                   # Environment config
-├── package.json
-└── README.md
-```
-
-## Processing Pipeline 🔄
-
-1. **Link Analysis**: Parse URL and extract podcast metadata
-2. **Audio Download**: Download audio from source
-3. **Transcription**: Convert speech to text using Faster-Whisper
-4. **Text Optimization**: AI-enhanced transcript refinement
-5. **Summarization**: Generate structured notes with GPT-4
-
-## Troubleshooting 🔧
-
-### Common Issues
-
-**Whisper model download fails**
-```bash
-# Models are auto-downloaded on first use
-# If behind firewall, manually download from:
-# https://huggingface.co/Systran/faster-whisper-
-```
-
-**CUDA out of memory**
-```env
-# Use CPU or smaller model
-WHISPER_DEVICE=cpu
-WHISPER_MODEL=base
-```
-
-**OpenAI API errors**
-```bash
-# Check your API key in .env file
-# Verify network connectivity
-# Check OpenAI service status
-```
-
-### Logs
-
-```bash
-# View detailed logs
-DEBUG=* npm start
-
-# Or check server output
-npm start 2>&1 | tee server.log
-```
-
-## Development 💻
-
-```bash
-# Development mode with auto-reload
-npm run dev
-
-# Install dev dependencies
-npm install --save-dev nodemon
-```
-
-## Performance Tips ⚡
-
-1. **Use smaller models** for faster processing
-2. **Enable GPU** if available: `WHISPER_DEVICE=cuda`
-3. **Process shorter podcasts** first to test
-4. **Monitor disk space** - temp files can be large
-
-## License 📄
-
-MIT License - see LICENSE file for details.
-
-## Acknowledgments 🙏
-
-- [Faster-Whisper](https://github.com/SYSTRAN/faster-whisper) - Fast speech recognition
-- [OpenAI](https://openai.com/) - GPT-4 for text optimization
-- [Tailwind CSS](https://tailwindcss.com/) - UI styling
-
-## Support 💬
-
-For issues and feature requests, please use GitHub Issues.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-Made with ❤️ for podcast lovers everywhere
+## Processing Pipeline
+
+```
+1. Parse URL / receive file upload
+          ↓
+2. Extract audio URL + metadata
+          ↓
+3. ┌─ Download audio (background) ─────────────┐
+   └─ Cloud ASR transcription (immediate) ──────┘  ← parallel
+          ↓
+4. Generate structured notes (Qwen LLM)
+          ↓
+5. Save to library (SQLite)
+```
+
+If cloud ASR fails at step 3, the pipeline waits for the download to finish and retries with local Faster-Whisper.
+
+---
+
+## Notes Template
+
+Each processed episode produces:
+
+- **Metadata** — title, author, duration, date
+- **Topic Breakdown** — main segments and themes
+- **Key Quotes** — memorable lines with speaker context
+- **Action Items** — takeaways and next steps
+
+---
+
+## API Reference
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/process` | POST | Submit a podcast URL for processing |
+| `/api/upload` | POST | Upload a local audio file |
+| `/api/status/:jobId` | GET | Poll job progress |
+| `/api/library` | GET | List all saved episodes |
+| `/api/library/:id` | GET | Get a single episode from library |
+| `/api/chat/:jobId` | POST | Chat with a processed episode |
+| `/api/download/:jobId/:type` | GET | Download transcript or notes |
+| `/api/health` | GET | Health check |
+
+---
+
+## Project Structure
+
+```
+podcast-to-text/
+├── public/
+│   ├── index.html          # UI
+│   ├── script.js           # Frontend logic
+│   └── svgs/               # Podcast card illustrations
+├── server/
+│   ├── index.js            # Express server + processing pipeline
+│   ├── utils.js            # Shared utilities
+│   ├── whisper_transcribe.py
+│   └── services/
+│       ├── asrService.js       # DashScope cloud ASR
+│       ├── openaiService.js    # Qwen LLM (notes + chat)
+│       ├── chatService.js      # Per-episode chat
+│       ├── podcastService.js   # URL parsing + audio download
+│       ├── libraryService.js   # SQLite persistence
+│       ├── jobManager.js       # In-memory job tracking
+│       ├── fileUrlService.js   # Public URL generation for local files
+│       └── audioInfoService.js
+├── data/
+│   └── podcasts.db         # SQLite database (auto-created)
+├── .env.example
+└── package.json
+```
+
+---
+
+## Supported Platforms
+
+| Platform | Example URL |
+|----------|------------|
+| Xiaoyuzhou | `https://www.xiaoyuzhoufm.com/episode/...` |
+| Apple Podcasts | `https://podcasts.apple.com/...` |
+| RSS feed | `https://example.com/feed.xml` |
+| Direct audio | `https://example.com/episode.mp3` |
+| File upload | MP3, M4A, WAV (up to 500 MB) |
+
+---
+
+## Local Whisper Models
+
+Used automatically when cloud ASR is unavailable.
+
+| Model | Speed | Accuracy | RAM |
+|-------|-------|----------|-----|
+| tiny | ⚡⚡⚡ | ★★ | ~1 GB |
+| base | ⚡⚡ | ★★★ | ~1 GB |
+| small | ⚡ | ★★★★ | ~2 GB |
+| medium | 🐢 | ★★★★★ | ~5 GB |
+
+Set `WHISPER_MODEL=base` in `.env` (default).
+
+---
+
+## License
+
+MIT
