@@ -15,7 +15,7 @@ class ASRService {
         // Support up to 3-hour audio: ASR typically takes 10-20% of audio duration
         // 3 hours audio = ~36 minutes ASR time, set timeout to 3 hours for safety
         this.timeout = parseInt(process.env.ASR_TIMEOUT_MS) || 10800000; // 3 hours (180 minutes)
-        this.pollInterval = 5000; // Poll every 5 seconds (reduced frequency)
+        this.pollInterval = 2500; // Poll every 2.5 seconds
     }
 
     /**

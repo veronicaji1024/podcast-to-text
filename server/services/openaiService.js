@@ -18,7 +18,7 @@ class OpenAIService {
 
         this.model = process.env.OPENAI_MODEL || 'qwen-plus';
         this.maxTokens = 4000;
-        this.chunkSize = 3000; // Characters per chunk for processing
+        this.chunkSize = 5000; // Characters per chunk for processing
         this.apiTimeout = 90000; // 90 seconds timeout for API calls
     }
 
@@ -570,67 +570,189 @@ Return only the JSON array, like: ["Topic 1", "Topic 2", "Topic 3"]`;
     }
 
     // 最终笔记的结构化 prompt 模板
-    _noteTemplate(language) {
+    _noteTemplate(language, detailLevel = 'standard') {
         const isZh = language === 'zh';
+
         if (isZh) {
-            return `你是一个播客笔记整理专家。请根据以下结构，将这篇播客逐字稿整理成结构化笔记。输入是 Whisper ASR 的原始转录，可能含有轻微错误，请在整理时自动修正。
+            if (detailLevel === 'brief') {
+                return `你是一个播客笔记整理专家。将播客逐字稿整理成简洁概览笔记。
 
 ## 输出结构
 
 ### 1. 元信息
 - 标题：
 - 嘉宾：
-- 日期：
-- 时长：
-- 时代背景：这期播客发布时，AI/技术行业正在发生什么？用 2-3 句话概括当时的发展节点。
+- 时代背景：1-2 句话说明这期播客的时代节点。
 
-### 2. 话题拆解
-按讨论顺序整理，使用清晰的层级结构：
-- 大标题（主要话题）
-  - 中标题（子话题）
-    - 要点（具体观点）
+### 2. 话题概览
+按讨论顺序，列出所有主要话题，每个话题用 2-3 句话说明核心观点。
 
 ### 3. 金句摘录
-提取 5-10 句最有启发、最值得记住的原话，保留原文表述。
-
-### 4. 行动项
-基于播客内容，提炼出听众可以实际去做的事情。
+提取 3-5 句最值得记住的原话。
 
 ## 要求
-- 话题拆解要完整覆盖播客内容，不要遗漏重要观点
-- 用自己的话概括，但金句部分保留原文
-- 层级清晰，便于快速浏览
-- 语言简洁，去掉口语化的冗余表达`;
+- 覆盖所有主要话题，每个话题只保留最核心的信息
+- 语言精炼，控制篇幅
+- 专业术语无需解释`;
+            }
+
+            if (detailLevel === 'detailed') {
+                return `你是一个播客笔记整理专家。将播客逐字稿整理成详尽的结构化笔记。
+
+## 写作风格
+- 语言平实，像一篇认真的读书笔记，娓娓道来
+- 每个观点展开说明，必要时加背景和例子
+- 遇到专业术语时，先用括号解释（例：RAG（检索增强生成，一种让 AI 结合外部知识库回答问题的技术））
+- 保持意思准确，不压缩细节
+
+## 输出结构
+
+### 1. 元信息
+- 标题：
+- 嘉宾：
+- 时代背景：用 3-4 句话说明当时的行业背景、重要事件和发展节点。
+
+### 2. 话题拆解
+详细分点总结，按讨论顺序完整覆盖所有话题。
+
+结构：
+- **主话题**（可加一句背景说明）
+  - 子话题：说明讲了什么，包含必要背景
+    - 具体观点（完整展开，一个观点一行）
+    - 具体观点（有术语先解释，再描述观点）
+    - 相关细节（补充嘉宾提到的例子、数据或延伸说明）
+
+### 3. 金句摘录
+提取 8-12 句最有启发的原话，保留原文，可附一句语境说明。
+
+## 要求
+- 话题拆解全面，子话题之间不能有大的遗漏
+- 保留细节，不为压缩篇幅而省略有价值的观点
+- 语言流畅，让读者读起来轻松`;
+            }
+
+            // standard (default)
+            return `你是一个播客笔记整理专家。将播客逐字稿整理成结构化笔记。
+
+## 写作风格
+- 语言平实自然，像朋友给朋友讲这期播客，娓娓道来
+- 每个要点单独成句，不要把多个信息塞进一句话
+- 遇到专业术语时，先用括号简短解释（例：LLM（大语言模型，即 GPT 这类 AI））
+- 用自己的话转述，保持意思准确
+
+## 输出结构
+
+### 1. 元信息
+- 标题：
+- 嘉宾：
+- 时代背景：这期播客发布时发生了什么？用 2-3 句话说明当时的行业背景和节点。
+
+### 2. 话题拆解
+对整场播客做分点总结，按讨论顺序覆盖所有重要话题。
+
+结构：
+- **主话题**
+  - 子话题：用 1-2 句话说明讲了什么
+    - 具体观点（每个观点单独一行，信息不叠加）
+    - 具体观点（有术语则先解释）
+
+### 3. 金句摘录
+提取 5-8 句最有启发的原话，保留原文表述。
+
+## 要求
+- 话题拆解完整覆盖播客内容，不要遗漏
+- 语言流畅自然，不堆砌信息`;
         }
 
-        return `You are an expert podcast note-taker. Organize the following raw ASR transcript into structured notes using the template below. Silently fix minor transcription errors as you read.
+        // English templates
+        if (detailLevel === 'brief') {
+            return `You are an expert podcast note-taker. Organize the transcript into a concise overview.
 
 ## Output Structure
 
 ### 1. Meta Info
 - Title:
 - Guest(s):
-- Date:
-- Duration:
-- Context: What was happening in AI/tech when this episode aired? Summarize in 2-3 sentences.
+- Context: 1-2 sentences on the era/moment of this episode.
 
-### 2. Topic Breakdown
-Organized in discussion order, using clear hierarchy:
-- Main Topic
-  - Sub-topic
-    - Key point / specific insight
+### 2. Topic Overview
+List all major topics in discussion order. Summarize each in 2-3 sentences.
 
 ### 3. Notable Quotes
-Extract 5-10 of the most insightful, memorable quotes. Preserve the speaker's exact words.
-
-### 4. Action Items
-Based on the content, what can listeners actually do? List concrete, actionable steps.
+Extract 3-5 most memorable quotes.
 
 ## Requirements
-- Cover all major topics — don't skip important points
-- Paraphrase for the breakdown, but keep quotes verbatim
-- Clear hierarchy for easy skimming
-- Concise language, strip out filler and repetition`;
+- Cover all major topics with only the most essential information per topic
+- Keep it concise
+- No need to explain technical terms`;
+        }
+
+        if (detailLevel === 'detailed') {
+            return `You are an expert podcast note-taker. Organize the transcript into comprehensive structured notes.
+
+## Writing Style
+- Plain, natural language — like a thorough reading note, easy to follow
+- Expand on each point with context and examples where needed
+- Explain technical terms in parentheses (e.g., RAG (Retrieval-Augmented Generation, a technique that lets AI pull from external knowledge bases))
+- Preserve meaning accurately, don't compress details
+
+## Output Structure
+
+### 1. Meta Info
+- Title:
+- Guest(s):
+- Context: 3-4 sentences on the industry background, key events, and development milestones at the time.
+
+### 2. Topic Breakdown
+Detailed breakdown in discussion order, covering all topics completely.
+
+Structure:
+- **Main Topic** (add one sentence of background if helpful)
+  - Sub-topic: what was discussed, including necessary context
+    - Specific point (fully expanded, one point per line)
+    - Specific point (explain term first, then describe the point)
+    - Related detail (examples, data, or elaborations the guest mentioned)
+
+### 3. Notable Quotes
+Extract 8-12 most insightful quotes. Keep verbatim; may add one sentence of context.
+
+## Requirements
+- Comprehensive topic breakdown with no significant gaps
+- Preserve detail — don't omit valuable points for brevity
+- Readable and flowing`;
+        }
+
+        // standard (default)
+        return `You are an expert podcast note-taker. Organize the transcript into structured notes.
+
+## Writing Style
+- Plain, conversational language — like a friend recapping the episode
+- One point per sentence, don't pack multiple ideas into one
+- Explain technical terms in parentheses (e.g., LLM (Large Language Model, like GPT))
+- Paraphrase accurately
+
+## Output Structure
+
+### 1. Meta Info
+- Title:
+- Guest(s):
+- Context: 2-3 sentences on what was happening in the industry when this episode aired.
+
+### 2. Topic Breakdown
+Structured summary in discussion order, covering all important topics.
+
+Structure:
+- **Main Topic**
+  - Sub-topic: 1-2 sentences on what was discussed
+    - Specific point (one idea per line)
+    - Specific point (explain terms if present)
+
+### 3. Notable Quotes
+Extract 5-8 most insightful quotes. Keep verbatim.
+
+## Requirements
+- Complete coverage of all topics — don't skip anything
+- Natural, flowing language — no information overload`;
     }
 
     async _summarizeRawChunk(chunk, language, detailLevel, lengthGuide) {
@@ -667,7 +789,7 @@ Key points:`;
         }
 
         // 短音频直接套用完整笔记模板
-        const template = this._noteTemplate(language);
+        const template = this._noteTemplate(language, detailLevel);
         const prompt = `${template}
 
 ---
@@ -712,7 +834,7 @@ ${chunk}
 
         // 合并所有分块要点，套用完整模板输出最终笔记
         const combined = chunkExtracts.join('\n\n---\n\n');
-        const template = this._noteTemplate(language);
+        const template = this._noteTemplate(language, detailLevel);
         const finalPrompt = `${template}
 
 ---
