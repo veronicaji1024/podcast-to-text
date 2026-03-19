@@ -1,199 +1,294 @@
-// Podcast AI - Frontend JavaScript
+// Podcast AI — Frontend (rewritten for persistent library + two-tab layout)
 
-// API Base URL
 const API_BASE_URL = window.location.origin;
 
-// DOM Elements
-const podcastUrl = document.getElementById('podcastUrl');
-const pasteBtn = document.getElementById('pasteBtn');
-const analyzeBtn = document.getElementById('analyzeBtn');
-const uploadBtn = document.getElementById('uploadBtn');
-const audioFile = document.getElementById('audioFile');
-const summaryLanguage = document.getElementById('summaryLanguage');
-const detailLevel = document.getElementById('detailLevel');
-
-// Progress Elements
-const progressSection = document.getElementById('progressSection');
-const progressBar = document.getElementById('progressBar');
-const progressText = document.getElementById('progressText');
-const progressPercent = document.getElementById('progressPercent');
-
-// Result Elements
-const resultsSection = document.getElementById('resultsSection');
-const podcastInfo = document.getElementById('podcastInfo');
-const podcastCover = document.getElementById('podcastCover');
-const podcastTitle = document.getElementById('podcastTitle');
-const podcastAuthor = document.getElementById('podcastAuthor');
-const podcastDescription = document.getElementById('podcastDescription');
-const podcastDuration = document.getElementById('podcastDuration');
-const podcastDate = document.getElementById('podcastDate');
-
-// Tab Elements
-const tabSummary = document.getElementById('tabSummary');
-const tabTranscript = document.getElementById('tabTranscript');
-const summaryContent = document.getElementById('summaryContent');
-const transcriptContent = document.getElementById('transcriptContent');
-const summaryText = document.getElementById('summaryText');
-const transcriptText = document.getElementById('transcriptText');
-
-// Error Elements
-const errorSection = document.getElementById('errorSection');
-const errorMessage = document.getElementById('errorMessage');
-const retryBtn = document.getElementById('retryBtn');
-
-// Chat Elements
-const chatPanel = document.getElementById('chatPanel');
-const chatMessages = document.getElementById('chatMessages');
-const chatInput = document.getElementById('chatInput');
-const chatSendBtn = document.getElementById('chatSendBtn');
-const clearChatBtn = document.getElementById('clearChatBtn');
-const chatStatus = document.getElementById('chatStatus');
-
-// State
-let currentJobId = null;
+// ── State ──────────────────────────────────────────────────────
+let currentJobId       = null;
 let currentAccessToken = null;
-let pollInterval = null;
-let currentResult = null;
-let pollRetryCount = 0;
+let currentLibraryId   = null;
+let currentDetailData  = null;
+let pollInterval       = null;
+let pollRetryCount     = 0;
 const MAX_POLL_RETRIES = 5;
-const POLL_TIMEOUT = 10000; // 10 seconds
+const POLL_TIMEOUT     = 10000; // ms
 
-// Chat State
-let chatHistory = [];
+let chatHistory   = [];
 let isChatLoading = false;
 
-// Event Listeners
-document.addEventListener('DOMContentLoaded', () => {
-    initializeEventListeners();
-});
+// ── Init ───────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', initEventListeners);
 
-function initializeEventListeners() {
-    // Paste button
-    pasteBtn.addEventListener('click', async () => {
+function initEventListeners() {
+    // Paste
+    document.getElementById('pasteBtn').addEventListener('click', async () => {
         try {
-            const text = await navigator.clipboard.readText();
-            podcastUrl.value = text;
-        } catch (err) {
+            document.getElementById('podcastUrl').value = await navigator.clipboard.readText();
+        } catch {
             showNotification('无法访问剪贴板，请手动粘贴', 'error');
         }
     });
 
-    // Analyze button
-    analyzeBtn.addEventListener('click', handleAnalyze);
-
-    // Upload button
-    uploadBtn.addEventListener('click', () => {
-        audioFile.click();
-    });
-
-    // File input change
-    audioFile.addEventListener('change', handleFileUpload);
-
-    // Tab switching
-    tabSummary.addEventListener('click', () => switchTab('summary'));
-    tabTranscript.addEventListener('click', () => switchTab('transcript'));
-
-    // Copy buttons
-    document.getElementById('copySummaryBtn').addEventListener('click', () => {
-        copyToClipboard(summaryText.innerText);
-    });
-    document.getElementById('copyTranscriptBtn').addEventListener('click', () => {
-        copyToClipboard(transcriptText.innerText);
-    });
-
-    // Download buttons
-    document.getElementById('downloadSummaryBtn').addEventListener('click', downloadSummary);
-    document.getElementById('downloadTranscriptBtn').addEventListener('click', downloadTranscript);
+    // Analyze / Upload
+    document.getElementById('analyzeBtn').addEventListener('click', handleAnalyze);
+    document.getElementById('uploadBtn').addEventListener('click', () => document.getElementById('audioFile').click());
+    document.getElementById('audioFile').addEventListener('change', handleFileUpload);
+    document.getElementById('podcastUrl').addEventListener('keypress', e => { if (e.key === 'Enter') handleAnalyze(); });
 
     // Retry button
-    retryBtn.addEventListener('click', () => {
-        errorSection.classList.add('hidden');
-        resetUI();
+    document.getElementById('retryBtn').addEventListener('click', () => {
+        document.getElementById('errorSection').style.display = 'none';
+        document.getElementById('progressSection').style.display = 'none';
     });
 
-    // Enter key on input
-    podcastUrl.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            handleAnalyze();
+    // Main nav tabs
+    document.getElementById('navDiscover').addEventListener('click', () => switchMainTab('discover'));
+    document.getElementById('navUpload').addEventListener('click', () => switchMainTab('upload'));
+    document.getElementById('navLibrary').addEventListener('click', () => switchMainTab('library'));
+    document.getElementById('navResearch').addEventListener('click', () => switchMainTab('research'));
+
+    // CTA button on Discover tab
+    document.getElementById('ctaUploadBtn').addEventListener('click', () => switchMainTab('upload'));
+
+    // "处理新播客" button — hide result, show form
+    document.getElementById('backToFormBtn').addEventListener('click', showUploadForm);
+
+    // Result: inner tabs
+    document.getElementById('detailTabNotes').addEventListener('click', () => switchDetailTab('notes'));
+    document.getElementById('detailTabTranscript').addEventListener('click', () => switchDetailTab('transcript'));
+
+    // Result: copy / download
+    document.getElementById('copyNotesBtn').addEventListener('click', () =>
+        copyToClipboard(document.getElementById('detailNotesText').innerText));
+    document.getElementById('copyTranscriptBtn').addEventListener('click', () =>
+        copyToClipboard(document.getElementById('detailTranscriptText').innerText));
+    document.getElementById('downloadNotesBtn').addEventListener('click', downloadNotes);
+    document.getElementById('downloadTranscriptBtn').addEventListener('click', downloadTranscript);
+
+    // Chat
+    document.getElementById('chatSendBtn').addEventListener('click', sendChatMessage);
+    document.getElementById('chatInput').addEventListener('keypress', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+    });
+    document.getElementById('clearChatBtn').addEventListener('click', clearChat);
+}
+
+// ══ MAIN TAB SWITCHING ═════════════════════════════════════════
+function switchMainTab(tab) {
+    const isDiscover = tab === 'discover';
+    const isUpload   = tab === 'upload';
+    const isLibrary  = tab === 'library';
+    const isResearch = tab === 'research';
+
+    document.getElementById('tabDiscover').style.display  = isDiscover ? '' : 'none';
+    document.getElementById('tabUpload').style.display    = isUpload   ? '' : 'none';
+    document.getElementById('tabLibrary').style.display   = isLibrary  ? '' : 'none';
+    document.getElementById('tabResearch').style.display  = isResearch ? '' : 'none';
+
+    document.getElementById('navDiscover').classList.toggle('active', isDiscover);
+    document.getElementById('navUpload').classList.toggle('active',   isUpload);
+    document.getElementById('navLibrary').classList.toggle('active',  isLibrary);
+    document.getElementById('navResearch').classList.toggle('active', isResearch);
+
+    if (isLibrary) loadLibrary();
+}
+
+// ══ LIBRARY — LIST VIEW ════════════════════════════════════════
+async function loadLibrary() {
+    const grid = document.getElementById('libraryGrid');
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:48px 0;opacity:0.42;"><i class="fas fa-spinner fa-spin" style="font-size:22px;color:#c4a6ff;"></i></div>';
+
+    try {
+        const res  = await fetch(`${API_BASE_URL}/api/library`);
+        const data = await res.json();
+        const items = data.items || [];
+
+        if (items.length === 0) {
+            grid.innerHTML = `
+                <div style="grid-column:1/-1;text-align:center;padding:64px 0;opacity:0.36;">
+                    <i class="fa-solid fa-layer-group" style="font-size:38px;display:block;margin-bottom:16px;color:#c4a6ff;"></i>
+                    <p style="font-size:16px;font-weight:600;">Library is empty</p>
+                    <p style="font-size:13px;margin-top:6px;">Process a podcast to get started.</p>
+                </div>`;
+            return;
         }
-    });
 
-    // Chat event listeners
-    if (chatSendBtn) {
-        chatSendBtn.addEventListener('click', sendChatMessage);
-    }
-    if (chatInput) {
-        chatInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendChatMessage();
-            }
-        });
-    }
-    if (clearChatBtn) {
-        clearChatBtn.addEventListener('click', clearChat);
+        grid.innerHTML = '';
+        items.forEach(item => grid.appendChild(createLibraryCard(item)));
+
+    } catch {
+        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px 0;opacity:0.45;">Failed to load library.</div>';
     }
 }
 
-// Handle Analyze Button Click
-async function handleAnalyze() {
-    const url = podcastUrl.value.trim();
-    
-    if (!url) {
-        showNotification('请输入播客链接', 'error');
-        podcastUrl.focus();
-        return;
-    }
+function createLibraryCard(item) {
+    const div  = document.createElement('div');
+    div.className = 'lib-card gl rx au';
 
-    if (!isValidUrl(url)) {
-        showNotification('请输入有效的 URL', 'error');
-        return;
+    const date = item.created_at
+        ? new Date(item.created_at * 1000).toLocaleDateString('zh-CN', { year:'numeric', month:'short', day:'numeric' })
+        : '';
+
+    const coverHtml = item.cover_url
+        ? `<img src="${escapeHtml(item.cover_url)}" style="width:52px;height:52px;border-radius:12px;object-fit:cover;flex-shrink:0;" onerror="this.style.display='none'">`
+        : `<div style="width:52px;height:52px;border-radius:12px;background:rgba(196,166,255,0.22);flex-shrink:0;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-podcast" style="color:#c4a6ff;font-size:18px;"></i></div>`;
+
+    div.innerHTML = `
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+            ${coverHtml}
+            <div style="flex:1;min-width:0;">
+                <p style="font-size:15px;font-weight:700;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${escapeHtml(item.title || '未知播客')}</p>
+                ${item.author ? `<p style="font-size:12px;opacity:0.46;margin-top:3px;">${escapeHtml(item.author)}</p>` : ''}
+            </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11px;opacity:0.36;">${date}</span>
+            ${item.duration ? `<span class="badge"><i class="fas fa-clock"></i>${formatDuration(item.duration)}</span>` : ''}
+        </div>`;
+
+    // Delete button only — Library is metadata overview, no detail click
+    const delBtn = document.createElement('button');
+    delBtn.className = 'bg';
+    delBtn.style.cssText = 'width:100%;justify-content:center;margin-top:4px;font-size:12px;color:rgba(170,50,50,0.80);border-color:rgba(170,50,50,0.22);';
+    delBtn.innerHTML = '<i class="fa-regular fa-trash-can" style="font-size:11px;"></i>Delete';
+    delBtn.addEventListener('click', async e => {
+        e.stopPropagation();
+        if (!confirm('删除这集播客记录？')) return;
+        try {
+            const r = await fetch(`${API_BASE_URL}/api/library/${item.id}`, { method: 'DELETE' });
+            if (!r.ok) throw new Error();
+            div.style.cssText += ';opacity:0;transform:scale(0.92);transition:all 0.2s;';
+            setTimeout(() => div.remove(), 200);
+        } catch {
+            showNotification('删除失败', 'error');
+        }
+    });
+    div.appendChild(delBtn);
+
+    return div;
+}
+
+// Show upload form, hide result section
+function showUploadForm() {
+    document.getElementById('uploadResultSection').style.display = 'none';
+    document.getElementById('uploadFormSection').style.display = '';
+    currentLibraryId  = null;
+    currentDetailData = null;
+    resetChat();
+}
+
+// ══ RESULT — DETAIL VIEW (in Upload tab) ═══════════════════════
+async function openDetail(id) {
+
+    // Loading state
+    document.getElementById('detailTitle').textContent = 'Loading...';
+    document.getElementById('detailAuthor').textContent = '';
+    document.getElementById('detailNotesText').innerHTML = '<div style="padding:32px;text-align:center;opacity:0.38;"><i class="fas fa-spinner fa-spin fa-lg" style="color:#c4a6ff;"></i></div>';
+    document.getElementById('detailTranscriptText').textContent = '';
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/library/${id}`);
+        if (!res.ok) throw new Error('Not found');
+        const data = await res.json();
+
+        currentLibraryId  = id;
+        currentDetailData = data;
+
+        // Meta
+        document.getElementById('detailTitle').textContent  = data.title  || '未知播客';
+        document.getElementById('detailAuthor').textContent = data.author || '';
+
+        const coverEl = document.getElementById('detailCover');
+        if (data.cover_url) {
+            coverEl.src = data.cover_url;
+            coverEl.style.display = '';
+        } else {
+            coverEl.style.display = 'none';
+        }
+
+        // Content
+        document.getElementById('detailNotesText').innerHTML     = formatMarkdown(data.summary    || '');
+        document.getElementById('detailTranscriptText').textContent = data.transcript || '';
+
+        switchDetailTab('notes');
+        resetChat();
+
+    } catch {
+        showNotification('加载失败', 'error');
+        showUploadForm();
     }
+}
+
+function switchDetailTab(tab) {
+    const isNotes = tab === 'notes';
+    document.getElementById('detailNotesContent').style.display      = isNotes ? '' : 'none';
+    document.getElementById('detailTranscriptContent').style.display = isNotes ? 'none' : '';
+    document.getElementById('detailTabNotes').classList.toggle('active', isNotes);
+    document.getElementById('detailTabTranscript').classList.toggle('active', !isNotes);
+}
+
+// ══ DOWNLOADS ══════════════════════════════════════════════════
+function downloadNotes() {
+    if (!currentDetailData) return;
+    const title = currentDetailData.title || '播客笔记';
+    blobDownload(currentDetailData.summary || '', `${title}_笔记.md`, 'text/markdown');
+}
+
+function downloadTranscript() {
+    if (!currentDetailData) return;
+    const title = currentDetailData.title || '播客转录';
+    blobDownload(currentDetailData.transcript || '', `${title}_转录.txt`, 'text/plain');
+}
+
+function blobDownload(content, filename, type) {
+    const blob = new Blob([content], { type });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+// ══ PROCESSING — URL / FILE UPLOAD ════════════════════════════
+async function handleAnalyze() {
+    const url = document.getElementById('podcastUrl').value.trim();
+    if (!url) { showNotification('请输入播客链接', 'error'); return; }
+    if (!isValidUrl(url)) { showNotification('请输入有效的 URL', 'error'); return; }
 
     startProcessing();
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/process`, {
+        const res  = await fetch(`${API_BASE_URL}/api/process`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                url: url,
-                language: summaryLanguage.value,
-                detailLevel: detailLevel.value
+                url,
+                language:    document.getElementById('summaryLanguage').value,
+                detailLevel: document.getElementById('detailLevel').value
             })
         });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '处理请求失败');
 
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.error || '处理请求失败');
-        }
-
-        currentJobId = data.jobId;
+        currentJobId       = data.jobId;
         currentAccessToken = data.accessToken;
-        startPolling(currentJobId);
+        startPolling(data.jobId);
 
-    } catch (error) {
-        showError(error.message);
+    } catch (err) {
+        showUploadError(err.message);
     }
 }
 
-// Handle File Upload
 async function handleFileUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Check file type
-    if (!file.type.startsWith('audio/')) {
+    const allowedExts = ['.mp3','.wav','.m4a','.aac','.ogg','.flac','.mp4'];
+    const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    if (!file.type.startsWith('audio/') && !file.type.startsWith('video/') && !allowedExts.includes(ext)) {
         showNotification('请选择音频文件', 'error');
         return;
     }
-
-    // Check file size (500MB limit)
-    const maxSize = 500 * 1024 * 1024;
-    if (file.size > maxSize) {
+    if (file.size > 500 * 1024 * 1024) {
         showNotification('文件大小超过 500MB 限制', 'error');
         return;
     }
@@ -202,625 +297,278 @@ async function handleFileUpload(e) {
 
     const formData = new FormData();
     formData.append('audio', file);
-    formData.append('language', summaryLanguage.value);
-    formData.append('detailLevel', detailLevel.value);
+    formData.append('language',    document.getElementById('summaryLanguage').value);
+    formData.append('detailLevel', document.getElementById('detailLevel').value);
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/upload`, {
-            method: 'POST',
-            body: formData
-        });
+        const res  = await fetch(`${API_BASE_URL}/api/upload`, { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '上传文件失败');
 
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.error || '上传文件失败');
-        }
-
-        currentJobId = data.jobId;
+        currentJobId       = data.jobId;
         currentAccessToken = data.accessToken;
-        startPolling(currentJobId);
+        startPolling(data.jobId);
 
-    } catch (error) {
-        showError(error.message);
+    } catch (err) {
+        showUploadError(err.message);
     }
 
-    // Reset file input
-    audioFile.value = '';
+    document.getElementById('audioFile').value = '';
 }
 
-// Start Processing UI
 function startProcessing() {
-    // Hide other sections
-    resultsSection.classList.add('hidden');
-    errorSection.classList.add('hidden');
-    
-    // Show progress section
-    progressSection.classList.remove('hidden');
-    
-    // Reset progress
-    updateProgress(0, '准备开始...');
+    document.getElementById('progressSection').style.display = '';
+    document.getElementById('errorSection').style.display    = 'none';
+    updateProgress(0, 'Getting ready...');
     resetSteps();
-    
-    // Scroll to progress
-    progressSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('progressSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-// Reset Steps UI
-function resetSteps() {
-    for (let i = 1; i <= 5; i++) {
-        const step = document.getElementById(`step${i}`);
-        step.className = 'flex items-center p-3 rounded-lg border transition-all step-pending';
-        const icon = step.querySelector('.step-icon');
-        icon.className = 'step-icon fas fa-circle text-notion-border text-xs';
-    }
-}
-
-// Update Progress
-function updateProgress(percent, text) {
-    progressBar.style.width = `${percent}%`;
-    progressPercent.textContent = `${Math.round(percent)}%`;
-    progressText.textContent = text;
-}
-
-// Update Step Status
-function updateStep(stepNumber, status) {
-    const step = document.getElementById(`step${stepNumber}`);
-    const icon = step.querySelector('.step-icon');
-
-    if (status === 'active') {
-        step.className = 'flex items-center p-3 rounded-lg border transition-all step-active';
-        icon.className = 'step-icon fas fa-spinner fa-spin text-notion-accent text-xs';
-    } else if (status === 'completed') {
-        step.className = 'flex items-center p-3 rounded-lg border transition-all step-completed';
-        icon.className = 'step-icon fas fa-check text-green-600 text-xs';
-    } else if (status === 'error') {
-        step.className = 'flex items-center p-3 rounded-lg border transition-all border-red-300 bg-red-50';
-        icon.className = 'step-icon fas fa-times text-red-500 text-xs';
-    }
-}
-
-// Start Polling Job Status
 function startPolling(jobId) {
-    if (pollInterval) {
-        clearInterval(pollInterval);
-    }
-
+    if (pollInterval) clearInterval(pollInterval);
     pollRetryCount = 0;
 
     pollInterval = setInterval(async () => {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), POLL_TIMEOUT);
+            const tid = setTimeout(() => controller.abort(), POLL_TIMEOUT);
 
-            const response = await fetch(`${API_BASE_URL}/api/status/${jobId}`, {
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
+            const res  = await fetch(`${API_BASE_URL}/api/status/${jobId}`, { signal: controller.signal });
+            clearTimeout(tid);
+            const data = await res.json();
 
-            const data = await response.json();
+            if (!res.ok) throw new Error(data.error || '获取状态失败');
 
-            if (!response.ok) {
-                throw new Error(data.error || '获取状态失败');
-            }
-
-            // Reset retry count on successful response
             pollRetryCount = 0;
-
-            // Store access token for later use (downloads)
-            if (data.accessToken) {
-                currentAccessToken = data.accessToken;
-            }
+            if (data.accessToken) currentAccessToken = data.accessToken;
 
             updateJobStatus(data);
 
             if (data.status === 'completed') {
                 clearInterval(pollInterval);
-                showResults(data.result);
-            } else if (data.status === 'error') {
+                document.getElementById('progressSection').style.display = 'none';
+                showNotification('处理完成！', 'success');
+                // Show result (notes + chat) within Upload tab
+                document.getElementById('uploadFormSection').style.display = 'none';
+                document.getElementById('uploadResultSection').style.display = '';
+                openDetail(currentJobId);
+                document.getElementById('uploadResultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            } else if (data.status === 'error' || data.status === 'failed') {
                 clearInterval(pollInterval);
-                // Pass error with suggestion if available
-                showError(data.error, data.suggestion);
+                showUploadError(data.error || '处理失败');
             }
 
-        } catch (error) {
-            pollRetryCount++;
-            console.warn(`Polling attempt ${pollRetryCount} failed:`, error.message);
-
-            if (pollRetryCount >= MAX_POLL_RETRIES) {
+        } catch (err) {
+            if (++pollRetryCount >= MAX_POLL_RETRIES) {
                 clearInterval(pollInterval);
-                showError('网络连接不稳定，请检查网络后重试');
+                showUploadError('网络连接不稳定，请检查网络后重试');
             }
-            // Otherwise, keep trying
         }
     }, 2000);
 }
 
-// Update Job Status UI
-function updateJobStatus(data) {
-    const { step, progress, message } = data;
-
-    // Update progress
+function updateJobStatus({ step, progress, message }) {
     updateProgress(progress, message);
-
-    // Update steps
     if (step) {
-        const stepMap = {
-            'analyzing': 1,
-            'downloading': 2,
-            'transcribing': 3,
-            'optimizing': 4,
-            'summarizing': 5
-        };
-
-        const currentStepNum = stepMap[step];
-        
-        if (currentStepNum) {
-            // Mark previous steps as completed
-            for (let i = 1; i < currentStepNum; i++) {
-                updateStep(i, 'completed');
-            }
-            // Mark current step as active
-            updateStep(currentStepNum, 'active');
+        const stepMap = { analyzing:1, downloading:2, transcribing:3, optimizing:4, summarizing:5 };
+        const n = stepMap[step];
+        if (n) {
+            for (let i = 1; i < n; i++) updateStep(i, 'completed');
+            updateStep(n, 'active');
         }
     }
 }
 
-// Show Results
-function showResults(result) {
-    currentResult = result;
-
-    // Hide progress
-    progressSection.classList.add('hidden');
-
-    // Show results
-    resultsSection.classList.remove('hidden');
-
-    // Expand main content area to accommodate chat panel
-    const mainContent = document.getElementById('mainContent');
-    if (mainContent) {
-        mainContent.classList.remove('max-w-4xl');
-        mainContent.classList.add('max-w-6xl');
-    }
-
-    // Reset chat for new results
-    resetChat();
-
-    // Update podcast info
-    if (result.metadata) {
-        const { metadata } = result;
-        podcastInfo.classList.remove('hidden');
-        
-        if (metadata.cover) {
-            podcastCover.src = metadata.cover;
-            podcastCover.classList.remove('hidden');
-        } else {
-            podcastCover.classList.add('hidden');
-        }
-        
-        podcastTitle.textContent = metadata.title || '未知播客';
-        podcastAuthor.textContent = metadata.author || '未知作者';
-        podcastDescription.textContent = metadata.description || '';
-        
-        if (metadata.duration) {
-            podcastDuration.querySelector('span').textContent = formatDuration(metadata.duration);
-            podcastDuration.classList.remove('hidden');
-        } else {
-            podcastDuration.classList.add('hidden');
-        }
-        
-        if (metadata.date) {
-            podcastDate.querySelector('span').textContent = formatDate(metadata.date);
-            podcastDate.classList.remove('hidden');
-        } else {
-            podcastDate.classList.add('hidden');
-        }
-    } else {
-        podcastInfo.classList.add('hidden');
-    }
-
-    // Update content
-    summaryText.innerHTML = formatMarkdown(result.summary || '');
-    transcriptText.textContent = result.transcript || '';
-
-    // Switch to summary tab
-    switchTab('summary');
-
-    // Scroll to results
-    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-    showNotification('处理完成！', 'success');
+function updateProgress(percent, text) {
+    document.getElementById('progressBar').style.width       = `${percent}%`;
+    document.getElementById('progressPercent').textContent   = `${Math.round(percent)}%`;
+    document.getElementById('progressText').textContent      = text || '';
 }
 
-// Switch Tab
-function switchTab(tab) {
-    if (tab === 'summary') {
-        tabSummary.className = 'flex-1 py-3 px-4 text-sm font-medium text-notion-text border-b-2 border-notion-text bg-notion-hover transition-all';
-        tabTranscript.className = 'flex-1 py-3 px-4 text-sm font-medium text-notion-text-light hover:text-notion-text border-b-2 border-transparent transition-all';
-        summaryContent.classList.remove('hidden');
-        transcriptContent.classList.add('hidden');
-    } else {
-        tabTranscript.className = 'flex-1 py-3 px-4 text-sm font-medium text-notion-text border-b-2 border-notion-text bg-notion-hover transition-all';
-        tabSummary.className = 'flex-1 py-3 px-4 text-sm font-medium text-notion-text-light hover:text-notion-text border-b-2 border-transparent transition-all';
-        transcriptContent.classList.remove('hidden');
-        summaryContent.classList.add('hidden');
+function resetSteps() {
+    for (let i = 1; i <= 5; i++) {
+        const s  = document.getElementById('step' + i);
+        if (!s) continue;
+        s.className = 'srow';
+        const ic = s.querySelector('.step-icon');
+        ic.className = 'step-icon fas fa-circle'; ic.style.color = ''; ic.style.opacity = '0.28';
     }
 }
 
-// Show Error with optional suggestion
-function showError(message, suggestion = null) {
-    progressSection.classList.add('hidden');
-    errorSection.classList.remove('hidden');
-
-    // Parse error if it's an object with suggestion
-    if (typeof message === 'object' && message.error) {
-        suggestion = message.suggestion || suggestion;
-        message = message.error;
-    }
-
-    // Display error message
-    if (suggestion) {
-        errorMessage.innerHTML = '';
-        const msgSpan = document.createElement('span');
-        msgSpan.textContent = message;
-        errorMessage.appendChild(msgSpan);
-
-        const suggestionP = document.createElement('p');
-        suggestionP.className = 'text-red-500 text-xs mt-2';
-        suggestionP.textContent = suggestion;
-        errorMessage.appendChild(suggestionP);
-    } else {
-        errorMessage.textContent = message;
-    }
-
-    showNotification(message, 'error');
-}
-
-// Reset UI
-function resetUI() {
-    progressSection.classList.add('hidden');
-    resultsSection.classList.add('hidden');
-    errorSection.classList.add('hidden');
-    podcastUrl.value = '';
-    currentJobId = null;
-    currentAccessToken = null;
-    currentResult = null;
-    pollRetryCount = 0;
-    if (pollInterval) {
-        clearInterval(pollInterval);
-    }
-    // Reset chat
-    resetChat();
-    // Restore main content width
-    const mainContent = document.getElementById('mainContent');
-    if (mainContent) {
-        mainContent.classList.remove('max-w-6xl');
-        mainContent.classList.add('max-w-4xl');
+function updateStep(n, status) {
+    const s  = document.getElementById('step' + n);
+    if (!s) return;
+    const ic = s.querySelector('.step-icon');
+    s.className = 'srow';
+    if (status === 'active') {
+        s.classList.add('step-active');
+        ic.className = 'step-icon fas fa-spinner fa-spin'; ic.style.color = '#c4a6ff'; ic.style.opacity = '1';
+    } else if (status === 'completed') {
+        s.classList.add('step-completed');
+        ic.className = 'step-icon fas fa-check'; ic.style.color = '#6ab86a'; ic.style.opacity = '1';
+    } else if (status === 'error') {
+        s.classList.add('step-error');
+        ic.className = 'step-icon fas fa-times'; ic.style.color = '#cc4040'; ic.style.opacity = '1';
     }
 }
 
-// Copy to Clipboard
-async function copyToClipboard(text) {
-    try {
-        await navigator.clipboard.writeText(text);
-        showNotification('已复制到剪贴板', 'success');
-    } catch (err) {
-        showNotification('复制失败', 'error');
-    }
+function showUploadError(msg) {
+    document.getElementById('progressSection').style.display = 'none';
+    document.getElementById('errorSection').style.display    = '';
+    document.getElementById('errorMessage').textContent      = msg || '处理失败';
+    showNotification(msg, 'error');
 }
 
-// Download Summary
-function downloadSummary() {
-    if (!currentJobId || !currentAccessToken) {
-        // Fallback to blob download if no server auth
-        if (!currentResult || !currentResult.summary) return;
-        const title = currentResult.metadata?.title || '播客笔记';
-        const blob = new Blob([currentResult.summary], { type: 'text/markdown' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${title}_笔记.md`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        return;
-    }
-
-    // Download from server with token
-    const downloadUrl = `${API_BASE_URL}/api/download/${currentJobId}/summary?token=${encodeURIComponent(currentAccessToken)}`;
-    window.location.href = downloadUrl;
-}
-
-// Download Transcript
-function downloadTranscript() {
-    if (!currentJobId || !currentAccessToken) {
-        // Fallback to blob download if no server auth
-        if (!currentResult || !currentResult.transcript) return;
-        const title = currentResult.metadata?.title || '播客转录';
-        const blob = new Blob([currentResult.transcript], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${title}_转录.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        return;
-    }
-
-    // Download from server with token
-    const downloadUrl = `${API_BASE_URL}/api/download/${currentJobId}/transcript?token=${encodeURIComponent(currentAccessToken)}`;
-    window.location.href = downloadUrl;
-}
-
-// Utility Functions
-function isValidUrl(string) {
-    try {
-        new URL(string);
-        return true;
-    } catch (_) {
-        return false;
-    }
-}
-
-function formatDuration(seconds) {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    
-    if (hours > 0) {
-        return `${hours}小时${minutes}分钟`;
-    }
-    return `${minutes}分钟`;
-}
-
-function formatDate(dateString) {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('zh-CN', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    });
-}
-
-function formatMarkdown(text) {
-    // Use marked.js for proper markdown parsing with DOMPurify for XSS protection
-    if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
-        // Configure marked options
-        marked.setOptions({
-            breaks: true,
-            gfm: true
-        });
-
-        // Parse markdown and sanitize HTML
-        const rawHtml = marked.parse(text);
-        return DOMPurify.sanitize(rawHtml, {
-            ALLOWED_TAGS: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'strong', 'em',
-                          'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'hr'],
-            ALLOWED_ATTR: ['href', 'target', 'rel'],
-            ALLOW_DATA_ATTR: false
-        });
-    }
-
-    // Fallback: escape HTML and do simple formatting (safe but less featured)
-    const escaped = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-
-    return escaped
-        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/^\- (.*$)/gim, '<li>$1</li>')
-        .replace(/^\&gt; (.*$)/gim, '<blockquote>$1</blockquote>')
-        .replace(/\n/g, '<br>');
-}
-
-// Notification
-function showNotification(message, type = 'info') {
-    // Create notification element
-    const notification = document.createElement('div');
-    let bgColor, icon;
-
-    if (type === 'success') {
-        bgColor = 'bg-green-600';
-        icon = 'fa-check';
-    } else if (type === 'error') {
-        bgColor = 'bg-red-600';
-        icon = 'fa-exclamation-circle';
-    } else {
-        bgColor = 'bg-notion-text';
-        icon = 'fa-info-circle';
-    }
-
-    notification.className = `fixed top-4 right-4 ${bgColor} text-white px-5 py-3 rounded-lg shadow-lg flex items-center space-x-2 z-50 animate-fade-in text-sm`;
-
-    // Create elements safely to prevent XSS
-    const iconEl = document.createElement('i');
-    iconEl.className = `fas ${icon}`;
-    const textEl = document.createElement('span');
-    textEl.textContent = message; // Use textContent, not innerHTML
-    notification.appendChild(iconEl);
-    notification.appendChild(textEl);
-
-    document.body.appendChild(notification);
-
-    // Remove after 3 seconds
-    setTimeout(() => {
-        notification.style.opacity = '0';
-        notification.style.transform = 'translateY(-20px)';
-        notification.style.transition = 'all 0.3s ease';
-        setTimeout(() => {
-            if (notification.parentNode) {
-                document.body.removeChild(notification);
-            }
-        }, 300);
-    }, 3000);
-}
-
-// ==================== Chat Functions ====================
-
-// Send chat message
+// ══ CHAT ═══════════════════════════════════════════════════════
 async function sendChatMessage() {
-    if (!chatInput || isChatLoading) return;
-
-    const message = chatInput.value.trim();
+    if (isChatLoading) return;
+    const input   = document.getElementById('chatInput');
+    const message = input.value.trim();
     if (!message) return;
 
-    if (!currentJobId || !currentAccessToken) {
-        showNotification('请先处理一个播客', 'error');
+    if (!currentLibraryId) {
+        showNotification('请先选择一集播客', 'error');
         return;
     }
 
-    // Add user message to chat
     addChatMessage('user', message);
-    chatInput.value = '';
-
-    // Show loading state
+    input.value = '';
     isChatLoading = true;
     setChatLoading(true);
 
     try {
-        const response = await fetch(
-            `${API_BASE_URL}/api/chat/${currentJobId}?token=${encodeURIComponent(currentAccessToken)}`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    message: message,
-                    history: chatHistory.slice(-10) // Send last 10 messages for context
-                })
-            }
-        );
+        const tokenParam = currentAccessToken ? `?token=${currentAccessToken}` : '';
+        const res  = await fetch(`${API_BASE_URL}/api/chat/${currentLibraryId}${tokenParam}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, history: chatHistory.slice(-10) })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '聊天请求失败');
 
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.error || '聊天请求失败');
-        }
-
-        // Add assistant response to chat
         addChatMessage('assistant', data.reply);
-
-        // Update chat history
         chatHistory.push(
-            { role: 'user', content: message },
+            { role: 'user',      content: message    },
             { role: 'assistant', content: data.reply }
         );
 
-    } catch (error) {
-        console.error('Chat error:', error);
-        addChatMessage('assistant', `抱歉，发生了错误：${error.message}`);
+    } catch (err) {
+        addChatMessage('assistant', `抱歉，发生了错误：${err.message}`);
     } finally {
         isChatLoading = false;
         setChatLoading(false);
     }
 }
 
-// Add message to chat UI
 function addChatMessage(role, content) {
-    if (!chatMessages) return;
+    const cm = document.getElementById('chatMessages');
+    if (!cm) return;
+    const welcome = cm.querySelector('[data-welcome]');
+    if (welcome) welcome.remove();
 
-    // Remove welcome message if it's the first real message
-    const welcomeMsg = chatMessages.querySelector('.text-center');
-    if (welcomeMsg) {
-        welcomeMsg.remove();
-    }
-
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `chat-message p-3 text-sm ${
-        role === 'user' ? 'chat-message-user' : 'chat-message-assistant'
-    }`;
-
+    const d = document.createElement('div');
+    d.className = role === 'user' ? 'cmu' : 'cma';
     if (role === 'assistant') {
-        // Format markdown for assistant messages
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'markdown-content';
-        contentDiv.innerHTML = formatMarkdown(content);
-        messageDiv.appendChild(contentDiv);
+        const inner = document.createElement('div');
+        inner.className = 'md';
+        inner.innerHTML = formatMarkdown(content);
+        d.appendChild(inner);
     } else {
-        // Plain text for user messages
-        messageDiv.textContent = content;
+        d.textContent = content;
     }
-
-    chatMessages.appendChild(messageDiv);
-
-    // Scroll to bottom
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    cm.appendChild(d);
+    cm.scrollTop = cm.scrollHeight;
 }
 
-// Set chat loading state
 function setChatLoading(loading) {
-    if (chatStatus) {
-        chatStatus.classList.toggle('hidden', !loading);
-    }
-    if (chatSendBtn) {
-        chatSendBtn.disabled = loading;
-        chatSendBtn.classList.toggle('opacity-50', loading);
-    }
-    if (chatInput) {
-        chatInput.disabled = loading;
-    }
+    const status = document.getElementById('chatStatus');
+    const btn    = document.getElementById('chatSendBtn');
+    const input  = document.getElementById('chatInput');
+    if (status) status.style.display = loading ? '' : 'none';
+    if (btn)   { btn.disabled = loading; btn.style.opacity = loading ? '0.5' : ''; }
+    if (input)   input.disabled = loading;
 }
 
-// Clear chat history
-function clearChat() {
-    if (!chatMessages) return;
-
-    chatHistory = [];
-
-    // Clear messages
-    chatMessages.innerHTML = `
-        <div class="text-center text-sm text-notion-text-light py-4">
-            <i class="fas fa-robot text-2xl mb-2 block text-notion-accent"></i>
-            <p>你可以问我关于这个播客的任何问题</p>
-            <p class="text-xs mt-1">例如："某个观点原文是怎么说的？"</p>
-        </div>
-    `;
-}
-
-// Reset chat when starting new job
 function resetChat() {
     chatHistory = [];
-    if (chatMessages) {
-        chatMessages.innerHTML = `
-            <div class="text-center text-sm text-notion-text-light py-4">
-                <i class="fas fa-robot text-2xl mb-2 block text-notion-accent"></i>
-                <p>你可以问我关于这个播客的任何问题</p>
-                <p class="text-xs mt-1">例如："某个观点原文是怎么说的？"</p>
-            </div>
-        `;
+    const cm = document.getElementById('chatMessages');
+    if (cm) {
+        cm.innerHTML = `
+            <div data-welcome style="text-align:center;padding:32px 12px;opacity:0.40;">
+                <i class="fas fa-robot" style="font-size:26px;display:block;margin-bottom:10px;color:#c4a6ff;"></i>
+                <p style="font-size:13px;">你可以问我关于这个播客的任何问题</p>
+                <p style="font-size:11px;margin-top:5px;opacity:0.7;">"某个观点原文是怎么说的？"</p>
+            </div>`;
     }
-    if (chatInput) {
-        chatInput.value = '';
-    }
+    const input = document.getElementById('chatInput');
+    if (input) { input.value = ''; input.disabled = false; }
+    const btn = document.getElementById('chatSendBtn');
+    if (btn)  { btn.disabled = false; btn.style.opacity = ''; }
     setChatLoading(false);
 }
 
-// Add fade-in animation
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes fade-in {
-        from {
-            opacity: 0;
-            transform: translateY(-20px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
+function clearChat() {
+    chatHistory = [];
+    const cm = document.getElementById('chatMessages');
+    if (cm) {
+        cm.innerHTML = `
+            <div data-welcome style="text-align:center;padding:32px 12px;opacity:0.40;">
+                <i class="fas fa-robot" style="font-size:26px;display:block;margin-bottom:10px;color:#c4a6ff;"></i>
+                <p style="font-size:13px;">你可以问我关于这个播客的任何问题</p>
+                <p style="font-size:11px;margin-top:5px;opacity:0.7;">"某个观点原文是怎么说的？"</p>
+            </div>`;
     }
-    .animate-fade-in {
-        animation: fade-in 0.3s ease-out;
+}
+
+// ══ UTILITIES ══════════════════════════════════════════════════
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text)
+        .then(()  => showNotification('已复制到剪贴板', 'success'))
+        .catch(()  => showNotification('复制失败', 'error'));
+}
+
+function isValidUrl(s) {
+    try { new URL(s); return true; } catch { return false; }
+}
+
+function formatDuration(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.appendChild(document.createTextNode(str));
+    return d.innerHTML;
+}
+
+function formatMarkdown(text) {
+    if (!text) return '';
+    if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+        marked.setOptions({ breaks: true, gfm: true });
+        return DOMPurify.sanitize(marked.parse(text), {
+            ALLOWED_TAGS: ['h1','h2','h3','h4','h5','h6','p','br','strong','em','ul','ol','li','blockquote','code','pre','a','hr'],
+            ALLOWED_ATTR: ['href','target','rel'],
+            ALLOW_DATA_ATTR: false
+        });
     }
-`;
-document.head.appendChild(style);
+    // Minimal fallback (already HTML-safe via escapeHtml usage upstream)
+    return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+function showNotification(msg, type = 'info') {
+    const cols = { success:'rgba(72,155,72,0.92)', error:'rgba(195,55,55,0.90)', info:'rgba(18,14,38,0.90)' };
+    const ics  = { success:'fa-check', error:'fa-exclamation-circle', info:'fa-info-circle' };
+    const el   = document.createElement('div');
+    el.style.cssText = `position:fixed;top:20px;right:20px;background:${cols[type]||cols.info};color:#fff;padding:11px 18px;border-radius:14px;font-size:13px;font-family:'Jost',sans-serif;font-weight:500;display:flex;align-items:center;gap:8px;z-index:9999;backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.22);box-shadow:0 8px 32px rgba(0,0,0,0.16);`;
+    const i = document.createElement('i'); i.className = `fas ${ics[type]||ics.info}`;
+    const t = document.createElement('span'); t.textContent = msg;
+    el.appendChild(i); el.appendChild(t);
+    document.body.appendChild(el);
+    setTimeout(() => {
+        el.style.opacity = '0'; el.style.transform = 'translateY(-10px)'; el.style.transition = 'all 0.28s';
+        setTimeout(() => el.parentNode && document.body.removeChild(el), 300);
+    }, 3000);
+}

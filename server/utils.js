@@ -144,7 +144,7 @@ async function retry(fn, maxRetries = 3, delay = 1000) {
  */
 async function downloadFile(url, outputPath, onProgress) {
     const axios = require('axios');
-    const writer = require('fs').createWriteStream(outputPath);
+    const writer = require('fs').createWriteStream(outputPath, { highWaterMark: 4 * 1024 * 1024 }); // 4MB buffer
 
     const response = await axios({
         method: 'GET',

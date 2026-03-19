@@ -21,6 +21,7 @@ const jobManager = require('./services/jobManager');
 const asrService = require('./services/asrService');
 const fileUrlService = require('./services/fileUrlService');
 const chatService = require('./services/chatService');
+const libraryService = require('./services/libraryService');
 
 // Import utils
 const { execPromise, cleanupFile, ensureDir, determineOutputLanguage } = require('./utils');
@@ -353,23 +354,29 @@ app.post('/api/chat/:jobId', chatLimiter, async (req, res) => {
             return res.status(400).json({ error: '无效的对话历史' });
         }
 
+        let transcript, summary;
+
+        // First try active job (in-memory)
         const job = jobManager.getJob(jobId);
-
-        if (!job) {
-            return res.status(404).json({ error: '任务不存在或已过期' });
+        if (job) {
+            // Validate access token for active jobs
+            if (!token || !jobManager.validateToken(jobId, token)) {
+                return res.status(403).json({ error: '无效的访问令牌' });
+            }
+            if (job.status !== 'completed' || !job.result) {
+                return res.status(400).json({ error: '任务尚未完成，无法进行对话' });
+            }
+            transcript = job.result.transcript;
+            summary = job.result.summary;
+        } else {
+            // Fall back to persisted library entry
+            const libItem = libraryService.get(jobId);
+            if (!libItem) {
+                return res.status(404).json({ error: '任务不存在或已过期' });
+            }
+            transcript = libItem.transcript;
+            summary = libItem.summary;
         }
-
-        // Validate access token
-        if (!token || !jobManager.validateToken(jobId, token)) {
-            return res.status(403).json({ error: '无效的访问令牌' });
-        }
-
-        if (job.status !== 'completed' || !job.result) {
-            return res.status(400).json({ error: '任务尚未完成，无法进行对话' });
-        }
-
-        // Get transcript and summary from job result
-        const { transcript, summary } = job.result;
 
         if (!transcript) {
             return res.status(400).json({ error: '无法获取转录内容' });
@@ -386,6 +393,52 @@ app.post('/api/chat/:jobId', chatLimiter, async (req, res) => {
     } catch (error) {
         console.error('Chat error:', error);
         res.status(500).json({ error: error.message || '聊天服务出错' });
+    }
+});
+
+// ==================== Library Routes ====================
+
+/**
+ * List all saved podcasts (metadata only)
+ * GET /api/library
+ */
+app.get('/api/library', (req, res) => {
+    try {
+        const items = libraryService.list();
+        res.json({ items });
+    } catch (err) {
+        console.error('Library list error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Get single podcast with full content
+ * GET /api/library/:id
+ */
+app.get('/api/library/:id', (req, res) => {
+    try {
+        const item = libraryService.get(req.params.id);
+        if (!item) return res.status(404).json({ error: '播客不存在' });
+        res.json(item);
+    } catch (err) {
+        console.error('Library get error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Delete a podcast from library
+ * DELETE /api/library/:id
+ */
+app.delete('/api/library/:id', (req, res) => {
+    try {
+        const deleted = libraryService.remove(req.params.id);
+        if (!deleted) return res.status(404).json({ error: '播客不存在' });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Library delete error:', err);
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -431,24 +484,22 @@ async function processPodcast(job) {
         // Save the original audio URL for direct ASR use (no download needed for cloud ASR)
         job.audioUrl = podcastInfo.audioUrl;
 
-        // Step 2: Download audio (for local Whisper fallback and file serving)
-        await updateJob(job, {
-            step: 'downloading',
-            progress: 20,
-            message: '正在下载音频...'
-        });
-
+        // Step 2: Kick off download in background — ASR uses the CDN URL directly
+        // and does NOT need to wait for the local file.
+        // Download is only needed if cloud ASR fails and we fall back to local Whisper.
         const audioPath = path.join(job.dir, 'audio.mp3');
-        await podcastService.downloadAudio(podcastInfo.audioUrl, audioPath, (progress) => {
-            updateJob(job, {
-                progress: 20 + Math.round(progress * 0.2), // 20% to 40%
-                message: `正在下载音频... ${Math.round(progress)}%`
-            });
+        job.audioPath = audioPath;
+        job.downloadPromise = podcastService.downloadAudio(podcastInfo.audioUrl, audioPath)
+            .then(() => { job.downloadDone = true; })
+            .catch(err => { job.downloadError = err.message; console.error('Background download failed:', err.message); });
+
+        await updateJob(job, {
+            step: 'transcribing',
+            progress: 20,
+            message: '正在启动云端语音转录...'
         });
 
-        job.audioPath = audioPath;
-
-        // Continue with audio processing
+        // Continue with audio processing immediately (parallel with download)
         await processAudio(job);
 
     } catch (error) {
@@ -605,6 +656,19 @@ async function processAudioInternal(job) {
 
         // Fallback to local Whisper if ASR failed or not available
         if (!transcript || transcript.trim() === '') {
+            // Wait for background download to finish before using local file
+            if (job.downloadPromise && !job.downloadDone) {
+                await updateJob(job, {
+                    step: 'downloading',
+                    progress: 45,
+                    message: '等待音频下载完成...'
+                });
+                await job.downloadPromise;
+            }
+            if (job.downloadError) {
+                throw new Error(`音频下载失败，无法进行本地转录: ${job.downloadError}`);
+            }
+
             await updateJob(job, {
                 step: 'transcribing',
                 progress: 45,
@@ -682,6 +746,21 @@ async function processAudioInternal(job) {
                 usedASR: usedASR
             }
         });
+
+        // Persist to library (non-blocking — don't fail the job if this errors)
+        try {
+            libraryService.save({
+                id: job.id,
+                metadata: job.metadata,
+                language: outputLanguage,
+                detailLevel: job.detailLevel,
+                transcript,
+                summary
+            });
+            console.log(`Job ${job.id} saved to library.`);
+        } catch (libErr) {
+            console.error('Failed to save job to library:', libErr);
+        }
 
         // Cleanup audio file to save space
         if (job.audioPath) {
