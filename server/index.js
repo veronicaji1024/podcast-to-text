@@ -396,6 +396,68 @@ app.post('/api/chat/:jobId', chatLimiter, async (req, res) => {
     }
 });
 
+/**
+ * Chat with multiple podcasts at once (Research tab)
+ * POST /api/chat/multi
+ */
+app.post('/api/chat/multi', chatLimiter, async (req, res) => {
+    try {
+        const { ids, message, history = [] } = req.body;
+
+        if (!message || message.trim() === '') return res.status(400).json({ error: '请输入问题' });
+        if (message.length > 2000) return res.status(400).json({ error: '消息太长' });
+        if (!Array.isArray(ids) || ids.length === 0 || ids.length > 10) {
+            return res.status(400).json({ error: '请选择 1-10 集播客' });
+        }
+        if (!Array.isArray(history) || history.length > 50) return res.status(400).json({ error: '无效的对话历史' });
+
+        // Fetch episodes from library
+        const episodes = [];
+        for (const id of ids) {
+            const item = libraryService.get(id);
+            if (item) episodes.push(item);
+        }
+        if (episodes.length === 0) return res.status(404).json({ error: '未找到所选播客' });
+
+        // Build combined context (summaries only, truncated per episode)
+        const MAX_PER_EPISODE = Math.floor(12000 / episodes.length);
+        const episodeBlocks = episodes.map((ep, i) => {
+            const summary = (ep.summary || ep.transcript || '').substring(0, MAX_PER_EPISODE);
+            return `## [${i + 1}] ${ep.title || '未知播客'}\n${summary}`;
+        }).join('\n\n---\n\n');
+
+        const systemPrompt = `你是一个播客研究助手，现在可以访问以下 ${episodes.length} 集播客的内容摘要：
+
+${episodeBlocks}
+
+回答规则：
+- 基于以上播客内容回答，不要编造没有提到的信息
+- 如果答案来自某集播客，注明是哪集（用标题或序号）
+- 如果需要跨播客比较或综合观点，请明确指出各集的不同立场
+- 如果所有播客都没有涉及用户的问题，诚实说明
+- 用中文回答（除非用户用其他语言提问）`;
+
+        const messages = [
+            { role: 'system', content: systemPrompt },
+            ...history.slice(-10),
+            { role: 'user', content: message }
+        ];
+
+        const response = await openaiService.openai.chat.completions.create({
+            model: openaiService.model,
+            messages,
+            max_tokens: 2000,
+            temperature: 0.7
+        });
+
+        res.json({ reply: response.choices[0].message.content.trim() });
+
+    } catch (error) {
+        console.error('Multi-chat error:', error);
+        res.status(500).json({ error: error.message || '聊天服务出错' });
+    }
+});
+
 // ==================== Library Routes ====================
 
 /**
@@ -404,8 +466,9 @@ app.post('/api/chat/:jobId', chatLimiter, async (req, res) => {
  */
 app.get('/api/library', (req, res) => {
     try {
-        const items = libraryService.list();
-        res.json({ items });
+        const items      = libraryService.list();
+        const categories = libraryService.listCategories();
+        res.json({ items, categories });
     } catch (err) {
         console.error('Library list error:', err);
         res.status(500).json({ error: err.message });
@@ -438,6 +501,26 @@ app.delete('/api/library/:id', (req, res) => {
         res.json({ success: true });
     } catch (err) {
         console.error('Library delete error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Update category for a podcast (manual tagging)
+ * PATCH /api/library/:id
+ */
+app.patch('/api/library/:id', (req, res) => {
+    const VALID_CATEGORIES = ['科技与AI','经济与商业','社会与文化','健康与生活','历史与政治','教育与学习','艺术与创意','其他'];
+    const { category } = req.body;
+    if (category && !VALID_CATEGORIES.includes(category)) {
+        return res.status(400).json({ error: '无效分类' });
+    }
+    try {
+        const updated = libraryService.updateCategory(req.params.id, category || null);
+        if (!updated) return res.status(404).json({ error: '播客不存在' });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Library update error:', err);
         res.status(500).json({ error: err.message });
     }
 });

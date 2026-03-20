@@ -575,7 +575,9 @@ Return only the JSON array, like: ["Topic 1", "Topic 2", "Topic 3"]`;
 
         if (isZh) {
             if (detailLevel === 'brief') {
-                return `你是一个播客笔记整理专家。将播客逐字稿整理成简洁概览笔记。
+                return `【重要】无论原文是什么语言，所有笔记内容必须用中文（简体）输出。
+
+你是一个播客笔记整理专家。将播客逐字稿整理成简洁概览笔记。
 
 ## 输出结构
 
@@ -597,7 +599,9 @@ Return only the JSON array, like: ["Topic 1", "Topic 2", "Topic 3"]`;
             }
 
             if (detailLevel === 'detailed') {
-                return `你是一个播客笔记整理专家。将播客逐字稿整理成详尽的结构化笔记。
+                return `【重要】无论原文是什么语言，所有笔记内容必须用中文（简体）输出。
+
+你是一个播客笔记整理专家。将播客逐字稿整理成详尽的结构化笔记。
 
 ## 写作风格
 - 语言平实，像一篇认真的读书笔记，娓娓道来
@@ -632,7 +636,9 @@ Return only the JSON array, like: ["Topic 1", "Topic 2", "Topic 3"]`;
             }
 
             // standard (default)
-            return `你是一个播客笔记整理专家。将播客逐字稿整理成结构化笔记。
+            return `【重要】无论原文是什么语言，所有笔记内容必须用中文（简体）输出。
+
+你是一个播客笔记整理专家。将播客逐字稿整理成结构化笔记。
 
 ## 写作风格
 - 语言平实自然，像朋友给朋友讲这期播客，娓娓道来
@@ -804,7 +810,9 @@ ${chunk}
                 this.openai.chat.completions.create({
                     model: this.model,
                     messages: [
-                        { role: 'system', content: 'You are an expert podcast note-taker. Follow the exact output template provided.' },
+                        { role: 'system', content: language === 'zh'
+                            ? '你是一个播客笔记整理专家。请严格按照模板输出，所有内容必须用中文（简体）写作，即使原文是英语或其他语言。'
+                            : 'You are an expert podcast note-taker. Follow the exact output template provided.' },
                         { role: 'user', content: prompt }
                     ],
                     max_tokens: this.maxTokens,
@@ -851,7 +859,9 @@ Now produce the complete structured notes:`;
                 this.openai.chat.completions.create({
                     model: this.model,
                     messages: [
-                        { role: 'system', content: 'You are an expert podcast note-taker. Synthesize section extracts into complete structured notes following the exact template provided.' },
+                        { role: 'system', content: language === 'zh'
+                            ? '你是一个播客笔记整理专家。将分块要点综合成完整结构化笔记，严格按照模板输出，所有内容必须用中文（简体），即使原文是英语。'
+                            : 'You are an expert podcast note-taker. Synthesize section extracts into complete structured notes following the exact template provided.' },
                         { role: 'user', content: finalPrompt }
                     ],
                     max_tokens: this.maxTokens,
@@ -865,6 +875,46 @@ Now produce the complete structured notes:`;
         } catch (error) {
             console.error('Final notes error:', error);
             return combined;
+        }
+    }
+
+    /**
+     * Auto-classify a podcast into one of the fixed category labels.
+     * @param {string} title
+     * @param {string} description
+     * @param {string} summary - first 500 chars used
+     * @returns {Promise<string>} - one of the fixed category labels
+     */
+    async categorize(title, description, summary) {
+        const CATEGORIES = ['科技与AI', '经济与商业', '社会与文化', '健康与生活', '历史与政治', '教育与学习', '艺术与创意', '其他'];
+        const snippet = (summary || description || '').substring(0, 500);
+        const prompt = `根据以下播客信息，从给定分类中选择最合适的一个，只输出分类名称，不要其他文字。
+
+分类选项：${CATEGORIES.join(' / ')}
+
+标题：${title || '未知'}
+简介/摘要片段：${snippet}
+
+输出：`;
+
+        try {
+            const response = await this.callWithTimeout(
+                this.openai.chat.completions.create({
+                    model: this.model,
+                    messages: [{ role: 'user', content: prompt }],
+                    max_tokens: 20,
+                    temperature: 0.1
+                }),
+                30000,
+                '分类'
+            );
+            const raw = response.choices[0].message.content.trim();
+            // Match to known category
+            const matched = CATEGORIES.find(c => raw.includes(c));
+            return matched || '其他';
+        } catch (error) {
+            console.error('Categorize error:', error);
+            return '其他';
         }
     }
 

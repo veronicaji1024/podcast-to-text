@@ -13,6 +13,9 @@ pnpm-lock.yaml
 server/temp/*
 !server/temp/.gitkeep
 
+# Database (user data — do not commit)
+data/
+
 # Logs
 logs
 *.log

@@ -15,6 +15,18 @@ const POLL_TIMEOUT     = 10000; // ms
 let chatHistory   = [];
 let isChatLoading = false;
 
+// Research tab state
+let researchSelectedIds = new Set(); // multi-select
+let researchAllItems    = [];        // full library snapshot
+let researchChatHistory = [];
+let isResearchLoading   = false;
+
+// Library detail state
+let libDetailId       = null;
+let libDetailData     = null;
+let libChatHistory    = [];
+let isLibChatLoading  = false;
+
 // ── Init ───────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', initEventListeners);
 
@@ -70,6 +82,29 @@ function initEventListeners() {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
     });
     document.getElementById('clearChatBtn').addEventListener('click', clearChat);
+
+    // Library detail view
+    document.getElementById('libBackBtn').addEventListener('click', backToLibraryList);
+    document.getElementById('libDetailTabNotes').addEventListener('click', () => switchLibDetailTab('notes'));
+    document.getElementById('libDetailTabTranscript').addEventListener('click', () => switchLibDetailTab('transcript'));
+    document.getElementById('libCategorySelect').addEventListener('change', saveLibCategory);
+    document.getElementById('libChatSendBtn').addEventListener('click', sendLibChatMessage);
+    document.getElementById('libChatInput').addEventListener('keypress', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendLibChatMessage(); }
+    });
+    document.getElementById('libClearChatBtn').addEventListener('click', () => {
+        libChatHistory = [];
+        const cm = document.getElementById('libChatMessages');
+        cm.innerHTML = `<div data-welcome style="text-align:center;padding:32px 12px;opacity:0.40;"><i class="fas fa-robot" style="font-size:26px;display:block;margin-bottom:10px;color:#c4a6ff;"></i><p style="font-size:13px;">你可以问我关于这个播客的任何问题</p></div>`;
+    });
+
+    // Research tab
+    document.getElementById('researchSelectAll').addEventListener('click',  () => researchSetAll(true));
+    document.getElementById('researchSelectNone').addEventListener('click', () => researchSetAll(false));
+    document.getElementById('researchChatSendBtn').addEventListener('click', sendResearchChatMessage);
+    document.getElementById('researchChatInput').addEventListener('keypress', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendResearchChatMessage(); }
+    });
 }
 
 // ══ MAIN TAB SWITCHING ═════════════════════════════════════════
@@ -89,20 +124,27 @@ function switchMainTab(tab) {
     document.getElementById('navLibrary').classList.toggle('active',  isLibrary);
     document.getElementById('navResearch').classList.toggle('active', isResearch);
 
-    if (isLibrary) loadLibrary();
+    if (isLibrary)  loadLibrary();
+    if (isResearch) loadResearchEpisodes();
 }
 
 // ══ LIBRARY — LIST VIEW ════════════════════════════════════════
+let _libraryItems      = [];
+let _activeLibCategory = 'All';
+
 async function loadLibrary() {
-    const grid = document.getElementById('libraryGrid');
+    const grid    = document.getElementById('libraryGrid');
+    const sidebar = document.getElementById('libSidebar');
     grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:48px 0;opacity:0.42;"><i class="fas fa-spinner fa-spin" style="font-size:22px;color:#c4a6ff;"></i></div>';
+    if (sidebar) sidebar.innerHTML = '';
 
     try {
         const res  = await fetch(`${API_BASE_URL}/api/library`);
         const data = await res.json();
-        const items = data.items || [];
+        _libraryItems = data.items || [];
+        const categories = data.categories || [];
 
-        if (items.length === 0) {
+        if (_libraryItems.length === 0) {
             grid.innerHTML = `
                 <div style="grid-column:1/-1;text-align:center;padding:64px 0;opacity:0.36;">
                     <i class="fa-solid fa-layer-group" style="font-size:38px;display:block;margin-bottom:16px;color:#c4a6ff;"></i>
@@ -112,17 +154,58 @@ async function loadLibrary() {
             return;
         }
 
-        grid.innerHTML = '';
-        items.forEach(item => grid.appendChild(createLibraryCard(item)));
+        // Render sidebar
+        if (sidebar && categories.length > 0) {
+            _activeLibCategory = 'All';
+            renderLibrarySidebar(categories);
+        }
+
+        renderLibraryGrid();
 
     } catch {
         grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px 0;opacity:0.45;">Failed to load library.</div>';
     }
 }
 
+function renderLibrarySidebar(categories) {
+    const sidebar = document.getElementById('libSidebar');
+    if (!sidebar) return;
+    sidebar.innerHTML = '';
+    categories.forEach(({ category, count }) => {
+        const btn = document.createElement('button');
+        const isActive = category === _activeLibCategory;
+        btn.style.cssText = `display:flex;justify-content:space-between;align-items:center;width:100%;padding:7px 10px;border-radius:10px;border:1px solid ${isActive ? 'rgba(196,166,255,0.55)' : 'transparent'};background:${isActive ? 'rgba(196,166,255,0.18)' : 'transparent'};cursor:pointer;font-family:'Jost',sans-serif;font-size:12px;color:rgba(26,18,40,${isActive ? '0.85' : '0.55'});font-weight:${isActive ? '600' : '400'};text-align:left;gap:6px;`;
+        btn.innerHTML = `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(category)}</span><span style="flex-shrink:0;font-size:11px;opacity:0.55;">${count}</span>`;
+        btn.addEventListener('click', () => {
+            _activeLibCategory = category;
+            // Re-fetch to get fresh counts, or just re-render with current data
+            renderLibrarySidebar(categories);
+            renderLibraryGrid();
+        });
+        sidebar.appendChild(btn);
+    });
+}
+
+function renderLibraryGrid() {
+    const grid = document.getElementById('libraryGrid');
+    grid.innerHTML = '';
+
+    const filtered = _activeLibCategory === 'All'
+        ? _libraryItems
+        : _libraryItems.filter(item => (item.category || '其他') === _activeLibCategory);
+
+    if (filtered.length === 0) {
+        grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:48px 0;opacity:0.36;font-size:13px;">No episodes in this category.</div>`;
+        return;
+    }
+
+    filtered.forEach(item => grid.appendChild(createLibraryCard(item)));
+}
+
 function createLibraryCard(item) {
     const div  = document.createElement('div');
     div.className = 'lib-card gl rx au';
+    div.style.cursor = 'pointer';
 
     const date = item.created_at
         ? new Date(item.created_at * 1000).toLocaleDateString('zh-CN', { year:'numeric', month:'short', day:'numeric' })
@@ -132,6 +215,10 @@ function createLibraryCard(item) {
         ? `<img src="${escapeHtml(item.cover_url)}" style="width:52px;height:52px;border-radius:12px;object-fit:cover;flex-shrink:0;" onerror="this.style.display='none'">`
         : `<div style="width:52px;height:52px;border-radius:12px;background:rgba(196,166,255,0.22);flex-shrink:0;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-podcast" style="color:#c4a6ff;font-size:18px;"></i></div>`;
 
+    const categoryBadge = item.category
+        ? `<span style="font-size:10px;background:rgba(196,166,255,0.22);color:rgba(26,18,40,0.60);border-radius:6px;padding:2px 7px;">${escapeHtml(item.category)}</span>`
+        : '';
+
     div.innerHTML = `
         <div style="display:flex;gap:12px;align-items:flex-start;">
             ${coverHtml}
@@ -140,15 +227,21 @@ function createLibraryCard(item) {
                 ${item.author ? `<p style="font-size:12px;opacity:0.46;margin-top:3px;">${escapeHtml(item.author)}</p>` : ''}
             </div>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
             <span style="font-size:11px;opacity:0.36;">${date}</span>
-            ${item.duration ? `<span class="badge"><i class="fas fa-clock"></i>${formatDuration(item.duration)}</span>` : ''}
+            <div style="display:flex;gap:6px;align-items:center;">
+                ${categoryBadge}
+                ${item.duration ? `<span class="badge"><i class="fas fa-clock"></i>${formatDuration(item.duration)}</span>` : ''}
+            </div>
         </div>`;
 
-    // Delete button only — Library is metadata overview, no detail click
+    // Click card → open detail
+    div.addEventListener('click', () => openLibraryDetail(item.id));
+
+    // Delete button
     const delBtn = document.createElement('button');
     delBtn.className = 'bg';
-    delBtn.style.cssText = 'width:100%;justify-content:center;margin-top:4px;font-size:12px;color:rgba(170,50,50,0.80);border-color:rgba(170,50,50,0.22);';
+    delBtn.style.cssText = 'width:100%;justify-content:center;margin-top:8px;font-size:12px;color:rgba(170,50,50,0.80);border-color:rgba(170,50,50,0.22);';
     delBtn.innerHTML = '<i class="fa-regular fa-trash-can" style="font-size:11px;"></i>Delete';
     delBtn.addEventListener('click', async e => {
         e.stopPropagation();
@@ -165,6 +258,291 @@ function createLibraryCard(item) {
     div.appendChild(delBtn);
 
     return div;
+}
+
+// ══ LIBRARY DETAIL VIEW ════════════════════════════════════════
+async function openLibraryDetail(id) {
+    document.getElementById('libListView').style.display   = 'none';
+    document.getElementById('libDetailView').style.display = '';
+
+    // Reset state
+    libDetailId      = id;
+    libDetailData    = null;
+    libChatHistory   = [];
+
+    // Reset UI
+    document.getElementById('libDetailTitle').textContent  = 'Loading...';
+    document.getElementById('libDetailAuthor').textContent = '';
+    document.getElementById('libDetailNotesText').innerHTML = '<div style="padding:32px;text-align:center;opacity:0.38;"><i class="fas fa-spinner fa-spin fa-lg" style="color:#c4a6ff;"></i></div>';
+    document.getElementById('libDetailTranscriptText').textContent = '';
+    document.getElementById('libCategorySaved').style.display = 'none';
+    const cm = document.getElementById('libChatMessages');
+    cm.innerHTML = `<div data-welcome style="text-align:center;padding:32px 12px;opacity:0.40;"><i class="fas fa-robot" style="font-size:26px;display:block;margin-bottom:10px;color:#c4a6ff;"></i><p style="font-size:13px;">你可以问我关于这个播客的任何问题</p></div>`;
+    switchLibDetailTab('notes');
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/library/${id}`);
+        if (!res.ok) throw new Error('Not found');
+        const data = await res.json();
+        libDetailData = data;
+
+        document.getElementById('libDetailTitle').textContent  = data.title  || '未知播客';
+        document.getElementById('libDetailAuthor').textContent = data.author || '';
+
+        const cover = document.getElementById('libDetailCover');
+        if (data.cover_url) { cover.src = data.cover_url; cover.style.display = ''; }
+        else { cover.style.display = 'none'; }
+
+        document.getElementById('libDetailNotesText').innerHTML       = formatMarkdown(data.summary    || '');
+        document.getElementById('libDetailTranscriptText').textContent = data.transcript || '';
+
+        // Set category picker
+        const sel = document.getElementById('libCategorySelect');
+        sel.value = data.category || '';
+
+    } catch {
+        showNotification('加载失败', 'error');
+        backToLibraryList();
+    }
+}
+
+function backToLibraryList() {
+    document.getElementById('libDetailView').style.display = 'none';
+    document.getElementById('libListView').style.display   = '';
+    // Refresh list so category badge updates
+    loadLibrary();
+}
+
+function switchLibDetailTab(tab) {
+    const isNotes = tab === 'notes';
+    document.getElementById('libDetailNotesContent').style.display      = isNotes ? '' : 'none';
+    document.getElementById('libDetailTranscriptContent').style.display = isNotes ? 'none' : '';
+    document.getElementById('libDetailTabNotes').classList.toggle('active', isNotes);
+    document.getElementById('libDetailTabTranscript').classList.toggle('active', !isNotes);
+}
+
+async function saveLibCategory() {
+    if (!libDetailId) return;
+    const sel      = document.getElementById('libCategorySelect');
+    const category = sel.value || null;
+    const savedEl  = document.getElementById('libCategorySaved');
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/library/${libDetailId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category })
+        });
+        if (!res.ok) throw new Error();
+        savedEl.style.display = '';
+        setTimeout(() => { savedEl.style.display = 'none'; }, 2000);
+    } catch {
+        showNotification('保存分类失败', 'error');
+    }
+}
+
+async function sendLibChatMessage() {
+    if (isLibChatLoading || !libDetailId) return;
+    const input   = document.getElementById('libChatInput');
+    const message = input.value.trim();
+    if (!message) return;
+
+    addLibChatMessage('user', message);
+    input.value = '';
+    isLibChatLoading = true;
+    setLibChatLoading(true);
+
+    try {
+        const res  = await fetch(`${API_BASE_URL}/api/chat/${libDetailId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, history: libChatHistory.slice(-10) })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '聊天请求失败');
+        addLibChatMessage('assistant', data.reply);
+        libChatHistory.push(
+            { role: 'user',      content: message    },
+            { role: 'assistant', content: data.reply }
+        );
+    } catch (err) {
+        addLibChatMessage('assistant', `抱歉，发生了错误：${err.message}`);
+    } finally {
+        isLibChatLoading = false;
+        setLibChatLoading(false);
+    }
+}
+
+function addLibChatMessage(role, content) {
+    const cm = document.getElementById('libChatMessages');
+    if (!cm) return;
+    const welcome = cm.querySelector('[data-welcome]');
+    if (welcome) welcome.remove();
+    const d = document.createElement('div');
+    d.className = role === 'user' ? 'cmu' : 'cma';
+    if (role === 'assistant') {
+        const inner = document.createElement('div');
+        inner.className = 'md';
+        inner.innerHTML = formatMarkdown(content);
+        d.appendChild(inner);
+    } else {
+        d.textContent = content;
+    }
+    cm.appendChild(d);
+    cm.scrollTop = cm.scrollHeight;
+}
+
+function setLibChatLoading(loading) {
+    const status = document.getElementById('libChatStatus');
+    const btn    = document.getElementById('libChatSendBtn');
+    const input  = document.getElementById('libChatInput');
+    if (status) status.style.display = loading ? '' : 'none';
+    if (btn)    { btn.disabled = loading; btn.style.opacity = loading ? '0.5' : ''; }
+    if (input)    input.disabled = loading;
+}
+
+// ══ RESEARCH TAB ═══════════════════════════════════════════════
+async function loadResearchEpisodes() {
+    const list = document.getElementById('researchEpisodeList');
+    list.innerHTML = '<div style="text-align:center;padding:24px;opacity:0.38;font-size:13px;"><i class="fas fa-spinner fa-spin" style="color:#c4a6ff;"></i></div>';
+
+    try {
+        const res  = await fetch(`${API_BASE_URL}/api/library`);
+        const data = await res.json();
+        researchAllItems = data.items || [];
+
+        if (researchAllItems.length === 0) {
+            list.innerHTML = '<div style="text-align:center;padding:20px;font-size:13px;opacity:0.40;">Library 暂无播客</div>';
+            return;
+        }
+
+        renderResearchList();
+    } catch {
+        list.innerHTML = '<div style="text-align:center;padding:20px;font-size:13px;opacity:0.40;">加载失败</div>';
+    }
+}
+
+function renderResearchList() {
+    const list = document.getElementById('researchEpisodeList');
+    list.innerHTML = '';
+
+    researchAllItems.forEach(item => {
+        const row = document.createElement('label');
+        const checked = researchSelectedIds.has(item.id);
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 14px;cursor:pointer;transition:background 0.15s;';
+        row.addEventListener('mouseenter', () => row.style.background = 'rgba(196,166,255,0.10)');
+        row.addEventListener('mouseleave', () => row.style.background = '');
+
+        const cb = document.createElement('input');
+        cb.type    = 'checkbox';
+        cb.checked = checked;
+        cb.style.cssText = 'width:14px;height:14px;accent-color:#c4a6ff;flex-shrink:0;cursor:pointer;';
+        cb.addEventListener('change', () => {
+            if (cb.checked) researchSelectedIds.add(item.id);
+            else            researchSelectedIds.delete(item.id);
+            updateResearchUI();
+        });
+
+        const titleSpan = document.createElement('span');
+        titleSpan.style.cssText = 'flex:1;font-size:13px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:rgba(26,18,40,0.78);';
+        titleSpan.textContent = item.title || item.id;
+
+        const catSpan = document.createElement('span');
+        catSpan.style.cssText = 'font-size:10px;background:rgba(196,166,255,0.20);color:rgba(26,18,40,0.50);border-radius:6px;padding:2px 6px;flex-shrink:0;';
+        catSpan.textContent = item.category || '';
+
+        row.appendChild(cb);
+        row.appendChild(titleSpan);
+        if (item.category) row.appendChild(catSpan);
+        list.appendChild(row);
+    });
+
+    updateResearchUI();
+}
+
+function researchSetAll(selected) {
+    researchSelectedIds.clear();
+    if (selected) researchAllItems.forEach(item => researchSelectedIds.add(item.id));
+    renderResearchList();
+}
+
+function updateResearchUI() {
+    const count = researchSelectedIds.size;
+    const countEl = document.getElementById('researchSelectedCount');
+    countEl.textContent = count > 0 ? `已选 ${count} 集` : '未选择';
+
+    const input = document.getElementById('researchChatInput');
+    const btn   = document.getElementById('researchChatSendBtn');
+    const enabled = count > 0;
+    input.disabled    = !enabled;
+    btn.disabled      = !enabled;
+    btn.style.opacity = enabled ? '' : '0.4';
+}
+
+async function sendResearchChatMessage() {
+    if (isResearchLoading || researchSelectedIds.size === 0) return;
+    const input   = document.getElementById('researchChatInput');
+    const message = input.value.trim();
+    if (!message) return;
+
+    addResearchChatMessage('user', message);
+    input.value = '';
+    isResearchLoading = true;
+    setResearchChatLoading(true);
+
+    try {
+        const res  = await fetch(`${API_BASE_URL}/api/chat/multi`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ids: [...researchSelectedIds],
+                message,
+                history: researchChatHistory.slice(-10)
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '聊天请求失败');
+
+        addResearchChatMessage('assistant', data.reply);
+        researchChatHistory.push(
+            { role: 'user',      content: message    },
+            { role: 'assistant', content: data.reply }
+        );
+    } catch (err) {
+        addResearchChatMessage('assistant', `抱歉，发生了错误：${err.message}`);
+    } finally {
+        isResearchLoading = false;
+        setResearchChatLoading(false);
+    }
+}
+
+function addResearchChatMessage(role, content) {
+    const cm = document.getElementById('researchChatMessages');
+    if (!cm) return;
+    const welcome = cm.querySelector('[data-welcome]');
+    if (welcome) welcome.remove();
+
+    const d = document.createElement('div');
+    d.className = role === 'user' ? 'cmu' : 'cma';
+    if (role === 'assistant') {
+        const inner = document.createElement('div');
+        inner.className = 'md';
+        inner.innerHTML = formatMarkdown(content);
+        d.appendChild(inner);
+    } else {
+        d.textContent = content;
+    }
+    cm.appendChild(d);
+    cm.scrollTop = cm.scrollHeight;
+}
+
+function setResearchChatLoading(loading) {
+    const status = document.getElementById('researchChatStatus');
+    const btn    = document.getElementById('researchChatSendBtn');
+    const input  = document.getElementById('researchChatInput');
+    if (status) status.style.display = loading ? '' : 'none';
+    if (btn)   { btn.disabled = loading; btn.style.opacity = loading ? '0.5' : ''; }
+    if (input)   input.disabled = loading;
 }
 
 // Show upload form, hide result section
