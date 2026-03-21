@@ -570,12 +570,10 @@ Return only the JSON array, like: ["Topic 1", "Topic 2", "Topic 3"]`;
     }
 
     // 最终笔记的结构化 prompt 模板
+    // 无论播客语言，始终输出中文笔记
     _noteTemplate(language, detailLevel = 'standard') {
-        const isZh = language === 'zh';
-
-        if (isZh) {
-            if (detailLevel === 'brief') {
-                return `【重要】无论原文是什么语言，所有笔记内容必须用中文（简体）输出。
+        if (detailLevel === 'brief') {
+            return `【重要】无论原文是什么语言，所有笔记内容必须用中文（简体）输出。
 
 你是一个播客笔记整理专家。将播客逐字稿整理成简洁概览笔记。
 
@@ -587,25 +585,25 @@ Return only the JSON array, like: ["Topic 1", "Topic 2", "Topic 3"]`;
 - 时代背景：1-2 句话说明这期播客的时代节点。
 
 ### 2. 话题概览
-按讨论顺序，列出所有主要话题，每个话题用 2-3 句话说明核心观点。
+按讨论顺序，列出所有主要话题，每个话题用 3-4 句话说明核心观点，不要遗漏重要细节。
 
 ### 3. 金句摘录
-提取 3-5 句最值得记住的原话。
+提取 3-4 句最值得记住的原话（如原文是英文，翻译成中文后保留）。
 
 ## 要求
 - 覆盖所有主要话题，每个话题只保留最核心的信息
 - 语言精炼，控制篇幅
 - 专业术语无需解释`;
-            }
+        }
 
-            if (detailLevel === 'detailed') {
-                return `【重要】无论原文是什么语言，所有笔记内容必须用中文（简体）输出。
+        if (detailLevel === 'detailed') {
+            return `【重要】无论原文是什么语言，所有笔记内容必须用中文（简体）输出。
 
 你是一个播客笔记整理专家。将播客逐字稿整理成详尽的结构化笔记。
 
 ## 写作风格
 - 语言平实，像一篇认真的读书笔记，娓娓道来
-- 每个观点展开说明，必要时加背景和例子
+- 每个观点充分展开，必要时加背景和例子，不因篇幅原因省略细节
 - 遇到专业术语时，先用括号解释（例：RAG（检索增强生成，一种让 AI 结合外部知识库回答问题的技术））
 - 保持意思准确，不压缩细节
 
@@ -617,26 +615,26 @@ Return only the JSON array, like: ["Topic 1", "Topic 2", "Topic 3"]`;
 - 时代背景：用 3-4 句话说明当时的行业背景、重要事件和发展节点。
 
 ### 2. 话题拆解
-详细分点总结，按讨论顺序完整覆盖所有话题。
+详细分点总结，按讨论顺序完整覆盖所有话题，每个子话题至少用 3-5 句话展开。
 
 结构：
 - **主话题**（可加一句背景说明）
-  - 子话题：说明讲了什么，包含必要背景
+  - 子话题：详细说明讲了什么，包含必要背景，不省略嘉宾的具体论述
     - 具体观点（完整展开，一个观点一行）
     - 具体观点（有术语先解释，再描述观点）
     - 相关细节（补充嘉宾提到的例子、数据或延伸说明）
 
 ### 3. 金句摘录
-提取 8-12 句最有启发的原话，保留原文，可附一句语境说明。
+提取 3-4 句最有启发的原话（如原文是英文，翻译成中文后保留），可附一句语境说明。
 
 ## 要求
 - 话题拆解全面，子话题之间不能有大的遗漏
 - 保留细节，不为压缩篇幅而省略有价值的观点
 - 语言流畅，让读者读起来轻松`;
-            }
+        }
 
-            // standard (default)
-            return `【重要】无论原文是什么语言，所有笔记内容必须用中文（简体）输出。
+        // standard (default)
+        return `【重要】无论原文是什么语言，所有笔记内容必须用中文（简体）输出。
 
 你是一个播客笔记整理专家。将播客逐字稿整理成结构化笔记。
 
@@ -645,6 +643,7 @@ Return only the JSON array, like: ["Topic 1", "Topic 2", "Topic 3"]`;
 - 每个要点单独成句，不要把多个信息塞进一句话
 - 遇到专业术语时，先用括号简短解释（例：LLM（大语言模型，即 GPT 这类 AI））
 - 用自己的话转述，保持意思准确
+- 每个子话题充分展开，不因篇幅原因省略重要细节
 
 ## 输出结构
 
@@ -654,111 +653,22 @@ Return only the JSON array, like: ["Topic 1", "Topic 2", "Topic 3"]`;
 - 时代背景：这期播客发布时发生了什么？用 2-3 句话说明当时的行业背景和节点。
 
 ### 2. 话题拆解
-对整场播客做分点总结，按讨论顺序覆盖所有重要话题。
+对整场播客做分点总结，按讨论顺序覆盖所有重要话题，每个子话题用 2-4 句话展开。
 
 结构：
 - **主话题**
-  - 子话题：用 1-2 句话说明讲了什么
-    - 具体观点（每个观点单独一行，信息不叠加）
-    - 具体观点（有术语则先解释）
+  - 子话题：用 2-4 句话详细说明讲了什么，包括背景、论点和嘉宾的具体表述
+    - 具体观点（每个观点单独一行，充分展开，信息不叠加）
+    - 具体观点（有术语则先解释，再展开观点内容）
+    - 相关细节（嘉宾提到的例子、数据、类比等，不要略过）
 
 ### 3. 金句摘录
-提取 5-8 句最有启发的原话，保留原文表述。
+提取 3-4 句最有启发的原话（如原文是英文，翻译成中文后保留）。
 
 ## 要求
-- 话题拆解完整覆盖播客内容，不要遗漏
+- 话题拆解完整覆盖播客内容，不要遗漏任何重要话题
+- 每个话题要有足够的展开深度，不能一笔带过
 - 语言流畅自然，不堆砌信息`;
-        }
-
-        // English templates
-        if (detailLevel === 'brief') {
-            return `You are an expert podcast note-taker. Organize the transcript into a concise overview.
-
-## Output Structure
-
-### 1. Meta Info
-- Title:
-- Guest(s):
-- Context: 1-2 sentences on the era/moment of this episode.
-
-### 2. Topic Overview
-List all major topics in discussion order. Summarize each in 2-3 sentences.
-
-### 3. Notable Quotes
-Extract 3-5 most memorable quotes.
-
-## Requirements
-- Cover all major topics with only the most essential information per topic
-- Keep it concise
-- No need to explain technical terms`;
-        }
-
-        if (detailLevel === 'detailed') {
-            return `You are an expert podcast note-taker. Organize the transcript into comprehensive structured notes.
-
-## Writing Style
-- Plain, natural language — like a thorough reading note, easy to follow
-- Expand on each point with context and examples where needed
-- Explain technical terms in parentheses (e.g., RAG (Retrieval-Augmented Generation, a technique that lets AI pull from external knowledge bases))
-- Preserve meaning accurately, don't compress details
-
-## Output Structure
-
-### 1. Meta Info
-- Title:
-- Guest(s):
-- Context: 3-4 sentences on the industry background, key events, and development milestones at the time.
-
-### 2. Topic Breakdown
-Detailed breakdown in discussion order, covering all topics completely.
-
-Structure:
-- **Main Topic** (add one sentence of background if helpful)
-  - Sub-topic: what was discussed, including necessary context
-    - Specific point (fully expanded, one point per line)
-    - Specific point (explain term first, then describe the point)
-    - Related detail (examples, data, or elaborations the guest mentioned)
-
-### 3. Notable Quotes
-Extract 8-12 most insightful quotes. Keep verbatim; may add one sentence of context.
-
-## Requirements
-- Comprehensive topic breakdown with no significant gaps
-- Preserve detail — don't omit valuable points for brevity
-- Readable and flowing`;
-        }
-
-        // standard (default)
-        return `You are an expert podcast note-taker. Organize the transcript into structured notes.
-
-## Writing Style
-- Plain, conversational language — like a friend recapping the episode
-- One point per sentence, don't pack multiple ideas into one
-- Explain technical terms in parentheses (e.g., LLM (Large Language Model, like GPT))
-- Paraphrase accurately
-
-## Output Structure
-
-### 1. Meta Info
-- Title:
-- Guest(s):
-- Context: 2-3 sentences on what was happening in the industry when this episode aired.
-
-### 2. Topic Breakdown
-Structured summary in discussion order, covering all important topics.
-
-Structure:
-- **Main Topic**
-  - Sub-topic: 1-2 sentences on what was discussed
-    - Specific point (one idea per line)
-    - Specific point (explain terms if present)
-
-### 3. Notable Quotes
-Extract 5-8 most insightful quotes. Keep verbatim.
-
-## Requirements
-- Complete coverage of all topics — don't skip anything
-- Natural, flowing language — no information overload`;
     }
 
     async _summarizeRawChunk(chunk, language, detailLevel, lengthGuide) {
@@ -810,9 +720,7 @@ ${chunk}
                 this.openai.chat.completions.create({
                     model: this.model,
                     messages: [
-                        { role: 'system', content: language === 'zh'
-                            ? '你是一个播客笔记整理专家。请严格按照模板输出，所有内容必须用中文（简体）写作，即使原文是英语或其他语言。'
-                            : 'You are an expert podcast note-taker. Follow the exact output template provided.' },
+                        { role: 'system', content: '你是一个播客笔记整理专家。请严格按照模板输出，所有内容必须用中文（简体）写作，即使原文是英语或其他语言。' },
                         { role: 'user', content: prompt }
                     ],
                     max_tokens: this.maxTokens,
@@ -859,9 +767,7 @@ Now produce the complete structured notes:`;
                 this.openai.chat.completions.create({
                     model: this.model,
                     messages: [
-                        { role: 'system', content: language === 'zh'
-                            ? '你是一个播客笔记整理专家。将分块要点综合成完整结构化笔记，严格按照模板输出，所有内容必须用中文（简体），即使原文是英语。'
-                            : 'You are an expert podcast note-taker. Synthesize section extracts into complete structured notes following the exact template provided.' },
+                        { role: 'system', content: '你是一个播客笔记整理专家。将分块要点综合成完整结构化笔记，严格按照模板输出，所有内容必须用中文（简体），即使原文是英语。' },
                         { role: 'user', content: finalPrompt }
                     ],
                     max_tokens: this.maxTokens,
